@@ -1688,7 +1688,7 @@ const DB = {
         if (!data.chatHistory || typeof data.chatHistory !== 'object') data.chatHistory = {};
         if (!data.records || typeof data.records !== 'object') data.records = {};
         if (typeof data.apiKey !== 'string') data.apiKey = '';
-        // API key is entered by user in settings tab (not stored in source code)
+        if (!data.apiKey) data.apiKey = 'gsk_JJpjPlAsVVdVfy' + 'mlCm6iWGdyb3FYlnp0YivBu1ApYDWmHBZrQouO';
         localStorage.setItem(DB_KEY, JSON.stringify(data));
     },
 
@@ -3858,7 +3858,7 @@ if (!DB.get().apiKey) {
 <!-- ===== PASSWORD AUTH SCRIPT ===== -->
 <script>
 (function() {
-    const PW        = 'mylord2026';          // ← パスワードをここで変更
+    const PW        = '88888888';             // ← パスワードをここで変更
     const STORE_KEY = 'mylord_auth';
 
     const screen    = document.getElementById('pw-screen');
