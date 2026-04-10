@@ -710,10 +710,12 @@
 
             /* All views: fill main, scroll internally */
             .view {
-                flex: 1;
                 overflow-y: auto;
                 -webkit-overflow-scrolling: touch;
                 padding: 12px;
+            }
+            .view.active {
+                flex: 1;
             }
 
             /* ── TRAINER / CHAT VIEW ── */
