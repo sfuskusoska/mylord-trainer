@@ -2316,7 +2316,7 @@ ${(() => {
         { role: 'user', content: userContent }
     ];
 
-    const model = imageB64 ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile';
+    const model = imageB64 ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'openai/gpt-oss-120b';
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
@@ -2552,7 +2552,7 @@ document.getElementById('btn-test-api').addEventListener('click', async () => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
             body: JSON.stringify({
-                model: 'llama-3.3-70b-versatile',
+                model: 'openai/gpt-oss-120b',
                 messages: [{ role: 'user', content: 'hi' }],
                 max_tokens: 5
             }),
@@ -3774,7 +3774,7 @@ ${chatText || 'なし'}
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
             body: JSON.stringify({
-                model: 'llama-3.3-70b-versatile',
+                model: 'openai/gpt-oss-120b',
                 messages: [
                     { role: 'system', content: 'あなたはプロのパーソナルトレーナーです。データに基づき簡潔にまとめてください。' },
                     { role: 'user', content: prompt }
