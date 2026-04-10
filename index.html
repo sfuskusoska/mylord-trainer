@@ -694,42 +694,41 @@
         .mob-btn span { white-space: nowrap; }
 
         @media (max-width: 768px) {
-            /* Show bottom nav, hide sidebar */
+            /* ── ボトムナビ・サイドバー ── */
             #mobile-nav { display: flex !important; }
             .sidebar    { display: none !important; }
             #btn-logout { top: 6px; right: 8px; font-size: 10px; padding: 3px 8px; }
 
-            /* Layout: single column, full height minus bottom nav */
-            .layout {
-                grid-template-columns: 1fr;
-                min-height: 0;
-            }
+            /* ── レイアウト ── */
+            .layout { display: block; }
+
+            /* ── メインエリア：画面全体をカバー ── */
             .main {
-                height: calc(100dvh - 56px - env(safe-area-inset-bottom));
+                position: fixed;
+                top: 0; left: 0; right: 0;
+                bottom: calc(56px + env(safe-area-inset-bottom));
                 overflow: hidden;
-                display: flex;
-                flex-direction: column;
             }
 
-            /* All views: fill main, scroll internally */
+            /* ── 全ビュー：絶対配置で重ねる ── */
             .view {
+                display: none !important;
+                position: absolute;
+                inset: 0;
                 overflow-y: auto;
                 -webkit-overflow-scrolling: touch;
-                padding: 12px;
+                padding: 16px;
             }
             .view.active {
-                flex: 1;
+                display: block !important;
             }
 
-            /* ── TRAINER / CHAT VIEW ── */
-            #view-trainer {
-                padding: 0;
-                overflow: hidden;
-            }
+            /* ── チャットビュー：縦flex ── */
             #view-trainer.active {
                 display: flex !important;
                 flex-direction: column;
-                height: 100%;
+                padding: 0;
+                overflow: hidden;
             }
             .trainer-view-wrap {
                 flex: 1;
@@ -737,7 +736,6 @@
                 display: flex;
                 flex-direction: column;
             }
-            /* Chat card: borderless full-screen on mobile */
             .trainer-chat-card {
                 flex: 1;
                 min-height: 0;
@@ -745,40 +743,44 @@
                 border-left: none;
                 border-right: none;
                 border-top: none;
-                padding: 0 0 8px;
+                padding: 0;
                 display: flex !important;
                 flex-direction: column;
             }
             .chat-date-nav {
-                padding: 8px 12px 8px;
+                padding: 8px 12px;
                 margin-bottom: 0;
+                flex-shrink: 0;
             }
             .chat-messages {
                 flex: 1;
                 min-height: 0;
                 padding: 8px 12px;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
             }
-            /* Bubble size: comfortable on phone */
-            .msg-bubble { font-size: 14px; padding: 10px 14px; }
-            .msg-inner  { max-width: 88%; }
-            /* Input row: stick to bottom, bigger touch targets */
+            .typing-indicator { padding: 2px 12px; font-size: 12px; flex-shrink: 0; }
+            #auto-save-notice { padding: 0 12px; flex-shrink: 0; }
+            #image-preview-row { padding: 4px 12px !important; flex-shrink: 0; }
             .chat-input-row {
-                padding: 6px 10px;
+                padding: 8px 10px;
                 background: var(--bg-card);
                 border-top: 1px solid var(--border);
                 gap: 6px;
+                flex-shrink: 0;
             }
             .chat-input-row textarea {
-                font-size: 16px; /* iOS zoom prevention */
+                font-size: 16px;
                 height: 40px;
                 min-height: 40px;
             }
             #chat-send { min-height: 40px; padding: 0 14px; }
-            .typing-indicator { padding: 2px 12px; font-size: 12px; }
-            #auto-save-notice { padding: 0 12px; }
-            #image-preview-row { padding: 4px 12px !important; }
 
-            /* ── OTHER VIEWS ── */
+            /* ── メッセージバブル ── */
+            .msg-bubble { font-size: 14px; padding: 10px 14px; }
+            .msg-inner  { max-width: 88%; }
+
+            /* ── その他ビュー共通 ── */
             .stats-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
             .zukan-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
             .zukan-illust { height: 90px; }
@@ -787,9 +789,6 @@
             .card { padding: 12px; margin-bottom: 12px; }
             .cal-cell { min-height: 44px; padding: 3px; }
             .cal-date-num { font-size: 11px; }
-
-            /* ── MATCH MODE ── */
-            #view-match .main-display { font-size: 48px; }
         }
 
         /* ===== CALENDAR ===== */
