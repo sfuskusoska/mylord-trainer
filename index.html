@@ -663,15 +663,14 @@
         /* ===== MOBILE BOTTOM NAV ===== */
         #mobile-nav {
             display: none;
-            position: fixed;
-            bottom: 0; left: 0; right: 0;
+            flex-direction: row;
+            /* position:fixed ではなくフロー内に置く (iOS Safari 対策) */
+            flex-shrink: 0;
             height: calc(56px + env(safe-area-inset-bottom));
             padding-bottom: env(safe-area-inset-bottom);
             background: var(--bg-card);
             border-top: 1px solid var(--border);
-            z-index: 500;
         }
-        #mobile-nav { display: none; flex-direction: row; }
         .mob-btn {
             flex: 1;
             display: flex;
@@ -701,22 +700,20 @@
             #card-logout-mobile { display: block !important; }
 
             /* ── body / layout ── */
-            /* .layout を position:fixed にする。
-               iOS Safari はドキュメントを動かせなくなるため、
-               textarea フォーカス時の "スクロール位置飛び" が起きない。 */
             html, body {
                 height: 100%;
                 overflow: hidden;
                 overscroll-behavior: none;
             }
+            /* position:fixed + JS で visualViewport.height を直接セット。
+               iOS Safari のキーボード表示に確実に追従する唯一の方法。 */
             .layout {
                 position: fixed;
-                inset: 0;           /* top/right/bottom/left: 0 */
+                top: 0; left: 0; right: 0;
+                height: 100dvh; /* JS が上書きするまでのフォールバック */
                 display: flex;
                 flex-direction: column;
                 overflow: hidden;
-                /* interactive-widget=resizes-content により
-                   キーボード表示時に fixed の bottom が自動で上がる */
             }
 
             /* ── メインエリア ── */
@@ -724,9 +721,8 @@
                 flex: 1;
                 min-height: 0;
                 overflow: hidden;
-                /* fixed nav (56px + safe-area) 分だけ下余白 */
-                padding-bottom: calc(56px + env(safe-area-inset-bottom));
-                box-sizing: border-box;
+                /* nav はフロー内なので padding 不要 */
+                padding-bottom: 0;
             }
 
             /* ── 全ビュー ── */
@@ -4024,23 +4020,24 @@ if (!DB.get().apiKey) {
     document.getElementById('api-alert').style.display = 'block';
 }
 
-// ===== iOS Safari スクロール位置保護 =====
-// textarea フォーカス時に iOS が chat-messages を勝手にスクロールするのを防ぐ
+// ===== iOS Safari キーボード対応：visualViewport で .layout 高さを直接制御 =====
 (function() {
     if (window.innerWidth > 768) return;
-    const input = document.getElementById('chat-input');
-    const msgs  = document.getElementById('chat-messages');
-    if (!input || !msgs) return;
+    const layout = document.querySelector('.layout');
+    if (!layout) return;
 
-    input.addEventListener('focus', function() {
-        const saved = msgs.scrollTop;
-        // iOS のスクロール調整完了後に位置を復元
-        requestAnimationFrame(function() {
-            msgs.scrollTop = saved;
-            setTimeout(function() { msgs.scrollTop = saved; }, 100);
-            setTimeout(function() { msgs.scrollTop = saved; }, 300);
-        });
-    });
+    function fitToViewport() {
+        const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+        layout.style.height = h + 'px';
+    }
+
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', fitToViewport);
+        window.visualViewport.addEventListener('scroll', fitToViewport);
+    }
+    window.addEventListener('resize', fitToViewport);
+    fitToViewport();
+    setTimeout(fitToViewport, 300);
 })();
 </script>
 
