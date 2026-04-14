@@ -2427,21 +2427,28 @@ async function callGroq(apiKey, imageB64 = null, imageMime = 'image/jpeg') {
 
 ${(() => {
     const dayOrder = ['Day1','Day2','Day3','Day4'];
-    const dayNames = { Day1:'胸三頭', Day2:'背中二頭', Day3:'下半身体幹', Day4:'肩腕' };
-    const trainRecs = Object.entries(recs)
-        .filter(([k,v]) => v.dayType && dayOrder.includes(v.dayType))
-        .sort(([a],[b]) => a < b ? -1 : 1);
-    const lastEntry = trainRecs[trainRecs.length - 1];
+    const dayNames = { Day1:'胸・三頭筋', Day2:'背中・二頭筋', Day3:'下半身・体幹', Day4:'肩・腕＋有酸素' };
+    // dayTypeあり優先、なければtrainingありで直近を探す
+    const byDay = Object.entries(recs).filter(([k,v]) => v.dayType && dayOrder.includes(v.dayType)).sort(([a],[b])=>a<b?-1:1);
+    const lastEntry = byDay[byDay.length - 1];
     const lastType  = lastEntry?.[1]?.dayType;
     const lastDate  = lastEntry?.[0];
-    const nextType  = lastType ? dayOrder[(dayOrder.indexOf(lastType) + 1) % dayOrder.length] : 'Day1';
-    const split = dayOrder.map(d => `${d}:${dayNames[d]}${d===lastType&&lastDate?`(前回${lastDate})`:''}${d===nextType?' ←次':''}` ).join(' / ');
-    const lastLog = lastEntry ? `前回(${lastDate} ${lastType}): ${lastEntry[1].training||'記録なし'}` : '前回: なし';
-    return `[分割] ${split}\n[${lastLog}]`;
+    const nextType  = lastType ? dayOrder[(dayOrder.indexOf(lastType)+1)%dayOrder.length] : 'Day1';
+    const split = dayOrder.map(d=>`- ${d}: ${dayNames[d]}${d===lastType&&lastDate?`（前回${lastDate}実施）`:''}${d===nextType?' ← 次のセッション':''}`).join('\n');
+
+    // 直近7日のトレーニング記録（dayType問わず）
+    const recentTrain = Object.entries(recs)
+        .filter(([k,v]) => v.training || v.checklistSummary)
+        .sort(([a],[b])=>a<b?-1:1).slice(-7)
+        .map(([dt,v])=>`${dt}: ${v.dayType||'?'} / ${v.training||v.checklistSummary||''}`)
+        .join('\n') || '記録なし';
+
+    return `【トレーニング分割プラン】\n${split}\n\n【直近セッション記録】\n${recentTrain}`;
 })()}
 
-[今日 ${DB.todayStr()}] 体重:${rec.weight||'?'}kg 睡眠:${rec.sleep||'?'}h 食事:朝${rec.morning?'○':'×'}昼${rec.lunch?'○':'×'}夜${rec.night?'○':'×'} 体重推移:${weekStr}
-[直近ログ] ${(() => { const s=d.dailySummaries||{}; const r=Object.keys(s).sort().slice(-3); return r.length?r.map(dt=>`${dt.slice(5)}:${s[dt]}`).join(' / '):'なし'; })()}
+【本日 ${DB.todayStr()}】体重:${rec.weight?rec.weight+'kg':'未記録'} 睡眠:${rec.sleep?rec.sleep+'h':'未記録'} 食事:朝${rec.morning?'済':'未'}昼${rec.lunch?'済':'未'}夜${rec.night?'済':'未'}
+【体重推移(7日)】${weekStr}
+【日次ログ(3件)】${(() => { const s=d.dailySummaries||{}; const r=Object.keys(s).sort().slice(-3); return r.length?r.map(dt=>`${dt}:${s[dt]}`).join(' / '):'なし'; })()}
 
 [出力ルール — 厳守]
 メニュー提示時: 会話文に種目リスト・表を書かない。末尾に必ず↓
