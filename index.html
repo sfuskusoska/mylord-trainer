@@ -4039,8 +4039,17 @@ if (!DB.get().apiKey) {
     if (!layout) return;
 
     function fitToViewport() {
-        const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-        layout.style.height = h + 'px';
+        const vv = window.visualViewport;
+        if (!vv) {
+            layout.style.top    = '0px';
+            layout.style.height = window.innerHeight + 'px';
+            return;
+        }
+        // offsetTop: iOS Safari がキーボード表示時にビジュアルビューポートを
+        // レイアウトビューポート内でスクロールさせた分。これを top に反映しないと
+        // レイアウトが見えない位置に固定されてしまう。
+        layout.style.top    = vv.offsetTop + 'px';
+        layout.style.height = vv.height + 'px';
     }
 
     if (window.visualViewport) {
