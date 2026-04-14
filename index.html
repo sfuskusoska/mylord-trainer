@@ -4020,19 +4020,7 @@ if (!DB.get().apiKey) {
     document.getElementById('api-alert').style.display = 'block';
 }
 
-// ===== チャット入力フォーカス時に最下部へスクロール (iOS Safari 対策) =====
-(function() {
-    if (window.innerWidth > 768) return;
-    const input = document.getElementById('chat-input');
-    const msgs  = document.getElementById('chat-messages');
-    if (!input || !msgs) return;
-    input.addEventListener('focus', function() {
-        // キーボード表示アニメーション完了後に最下部へ
-        setTimeout(function() {
-            msgs.scrollTop = msgs.scrollHeight;
-        }, 350);
-    });
-})();
+// (キーボード表示時の自動スクロールは削除 — スクロール位置は入力フォーカスで変えない)
 </script>
 
 </div><!-- /#main-content -->
