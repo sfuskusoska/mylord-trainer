@@ -2329,18 +2329,17 @@ async function sendMessage() {
             reply = reply.replace(/<!--MENU:.*?-->/s, '').trim();
         }
 
-        // Parse SET block → render editable set card
+        // Parse SET block → weight suggestion only (app controls set number/progression)
         const setMatch = reply.match(/<!--SET:(\{.*?\})-->/s);
         if (setMatch) {
             try {
                 const setData = JSON.parse(setMatch[1]);
-                reply = reply.replace(/<!--SET:.*?-->/s, '').trim();
-                if (reply) {
-                    appendBubble(reply, 'trainer');
-                    DB.addChat('assistant', reply, chatViewDate);
+                // Apply AI's weight/reps suggestion to current session card if it exists
+                if (_sessionPlan) {
+                    const ex = _sessionPlan.exercises[_sessionPlan.exIdx];
+                    if (ex && setData.weight) ex.weight = setData.weight;
+                    if (ex && setData.reps)   ex.reps   = setData.reps;
                 }
-                appendSetCard(setData);
-                return;
             } catch {}
             reply = reply.replace(/<!--SET:.*?-->/s, '').trim();
         }
@@ -2448,9 +2447,11 @@ ${(() => {
 メニュー提示時: 会話文に種目リスト・表を書かない。末尾に必ず↓
 <!--MENU:[{"name":"種目名","sets":"4","reps":"8","weight":"70kg"},...]-->
 
-セット指示時(開始/完了報告受信): 1〜2文コメント後、末尾に必ず↓
-<!--SET:{"exercise":"種目名","set":1,"total":3,"weight":"30","unit":"kg","reps":"12"}-->
-(weight/repsは数字のみ。前セット結果で重量調整可。全完了後はRECORDで記録)
+セット完了報告/コーチング依頼を受けたとき:
+- 1〜2文の簡潔なコメントのみ（「よし」「次も同じ重量」など）
+- セッション終了・次の日のプログラムは絶対に言わない（ユーザーが明示的に終了と言うまで）
+- 次セットの重量調整が必要なら末尾に↓（省略可）
+<!--SET:{"exercise":"種目名","set":0,"total":0,"weight":"30","unit":"kg","reps":"12"}-->
 
 記録報告時: 末尾に必ず↓
 <!--RECORD:{"weight":null,"sleep":null,"morning":null,"lunch":null,"night":null,"training":"","dayType":""}-->
@@ -2480,7 +2481,7 @@ ${(() => {
         { role: 'user', content: userContent }
     ];
 
-    const model = imageB64 ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'openai/gpt-oss-120b';
+    const model = imageB64 ? 'meta-llama/llama-4-maverick-17b-128e-instruct' : 'llama-3.3-70b-versatile';
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
@@ -2798,26 +2799,66 @@ function updateHeaderDate() {
     el.textContent = new Date().toLocaleDateString('ja-JP', opts);
 }
 
-// ===== MENU OVERVIEW =====
-// Show proposed menu as a summary card with a Start button.
-// Actual set execution is driven by SET blocks from the AI.
+// ===== SESSION STATE =====
+// App owns session progress. AI only provides coaching commentary.
+let _sessionPlan = null;
+// { exercises: [{name, totalSets, reps, weight, unit, results:[{w,r}]}], exIdx }
 
+function sessionCurrentEx() {
+    if (!_sessionPlan) return null;
+    return _sessionPlan.exercises[_sessionPlan.exIdx] || null;
+}
+
+// ===== MENU OVERVIEW =====
 function appendChecklist(exercises) {
+    // Normalise exercises into session plan format
+    const exList = exercises.map(ex => ({
+        name:       ex.name,
+        totalSets:  parseInt(ex.sets) || 3,
+        reps:       ex.reps || '10',
+        weight:     (ex.weight || '').replace(/[^\d.]/g, '') || '0',
+        unit:       (ex.weight || '').replace(/[\d.]/g, '').trim() || 'kg',
+        results:    []
+    }));
+
     const card = document.createElement('div');
     card.className = 'menu-overview';
 
     const title = document.createElement('div');
     title.className = 'menu-overview-title';
-    title.textContent = '今日のメニュー（予定）';
+    title.textContent = '今日のメニュー（順番を変えられます）';
     card.appendChild(title);
 
-    exercises.forEach(ex => {
-        const row = document.createElement('div');
-        row.className = 'menu-overview-item';
-        const meta = [ex.sets && ex.sets + 'セット', ex.reps && ex.reps + '回', ex.weight].filter(Boolean).join(' × ');
-        row.innerHTML = `<strong>${ex.name}</strong> <span class="menu-overview-meta">${meta}</span>`;
-        card.appendChild(row);
-    });
+    const listEl = document.createElement('div');
+    listEl.id = 'menu-list-' + Date.now();
+    card.appendChild(listEl);
+
+    function renderList() {
+        listEl.innerHTML = '';
+        exList.forEach((ex, i) => {
+            const row = document.createElement('div');
+            row.className = 'menu-overview-item';
+            row.style.cssText = 'display:flex;align-items:center;gap:6px;';
+            row.innerHTML = `<span style="flex:1"><strong>${ex.name}</strong> <span class="menu-overview-meta">${ex.totalSets}セット × ${ex.reps}回 ${ex.weight}${ex.unit}</span></span>`;
+
+            const upBtn = document.createElement('button');
+            upBtn.textContent = '↑';
+            upBtn.style.cssText = 'font-size:11px;padding:2px 5px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);cursor:pointer;';
+            upBtn.disabled = i === 0;
+            upBtn.addEventListener('click', () => { [exList[i-1], exList[i]] = [exList[i], exList[i-1]]; renderList(); });
+
+            const dnBtn = document.createElement('button');
+            dnBtn.textContent = '↓';
+            dnBtn.style.cssText = upBtn.style.cssText;
+            dnBtn.disabled = i === exList.length - 1;
+            dnBtn.addEventListener('click', () => { [exList[i], exList[i+1]] = [exList[i+1], exList[i]]; renderList(); });
+
+            row.appendChild(upBtn);
+            row.appendChild(dnBtn);
+            listEl.appendChild(row);
+        });
+    }
+    renderList();
 
     const startBtn = document.createElement('button');
     startBtn.className = 'menu-start-btn';
@@ -2825,9 +2866,10 @@ function appendChecklist(exercises) {
     startBtn.addEventListener('click', () => {
         startBtn.disabled = true;
         startBtn.textContent = '開始しました';
-        // Send start signal to AI so it begins set-by-set guidance
-        $chatInput.value = 'OK。メニュー確認しました。1セット目から始めてください。';
-        sendMessage();
+        // Initialise session state
+        _sessionPlan = { exercises: exList, exIdx: 0 };
+        // Show first set card and notify AI
+        showNextSetCard(true);
     });
     card.appendChild(startBtn);
 
@@ -2835,39 +2877,61 @@ function appendChecklist(exercises) {
     $chatMsgs.scrollTop = $chatMsgs.scrollHeight;
 }
 
-// ===== SET CARD =====
-// Rendered when the AI returns a <!--SET:{...}--> block.
+// Show the next set card from app state.
+// firstOfSession=true → also send coaching request to AI
+function showNextSetCard(firstOfSession = false) {
+    if (!_sessionPlan) return;
+    const ex = _sessionPlan.exercises[_sessionPlan.exIdx];
+    if (!ex) {
+        // All exercises done
+        appendBubble('全種目が完了しました！お疲れ様でした。\n追加したい種目があれば入力してください。', 'trainer');
+        // Save record
+        const summary = _sessionPlan.exercises
+            .map(e => `${e.name} ${e.results.map(r=>`${r.w}${e.unit}×${r.r}`).join('/')}`)
+            .join(', ');
+        DB.patchRecord({ training: summary });
+        _sessionPlan = null;
+        return;
+    }
+    const setNum = ex.results.length + 1;
+    appendSetCard({ exercise: ex.name, set: setNum, total: ex.totalSets, weight: ex.weight, unit: ex.unit, reps: ex.reps });
 
+    if (firstOfSession) {
+        $chatInput.value = `セッション開始。まず ${ex.name} から。コーチングをください。`;
+        sendMessage();
+    }
+}
+
+// ===== SET CARD =====
+// Called by the app (showNextSetCard). set/total come from app state, not AI.
 function appendSetCard(setData) {
     const { exercise, set, total, weight, unit, reps } = setData;
     const card = document.createElement('div');
     card.className = 'set-card';
 
-    // Header: セット N / total
     const header = document.createElement('div');
     header.className = 'set-card-header';
-    header.textContent = `セット ${set} / ${total || '?'}`;
+    header.textContent = `セット ${set} / ${total}`;
     card.appendChild(header);
 
-    // Exercise name
-    const name = document.createElement('div');
-    name.className = 'set-card-name';
-    name.textContent = exercise || '';
-    card.appendChild(name);
+    const nameEl = document.createElement('div');
+    nameEl.className = 'set-card-name';
+    nameEl.textContent = exercise;
+    card.appendChild(nameEl);
 
-    // Editable inputs: weight × reps
+    // Editable inputs
     const inputsRow = document.createElement('div');
     inputsRow.className = 'set-card-inputs';
 
     const wGrp = document.createElement('div');
     wGrp.className = 'set-card-input-group';
-    const wLabel = document.createElement('label');
-    wLabel.textContent = unit || 'kg';
     const wInput = document.createElement('input');
     wInput.type = 'number';
     wInput.value = weight || '';
     wInput.placeholder = '0';
     wInput.min = '0';
+    const wLabel = document.createElement('label');
+    wLabel.textContent = unit || 'kg';
     wGrp.appendChild(wInput);
     wGrp.appendChild(wLabel);
 
@@ -2877,13 +2941,13 @@ function appendSetCard(setData) {
 
     const rGrp = document.createElement('div');
     rGrp.className = 'set-card-input-group';
-    const rLabel = document.createElement('label');
-    rLabel.textContent = '回';
     const rInput = document.createElement('input');
     rInput.type = 'number';
     rInput.value = reps || '';
     rInput.placeholder = '0';
     rInput.min = '0';
+    const rLabel = document.createElement('label');
+    rLabel.textContent = '回';
     rGrp.appendChild(rInput);
     rGrp.appendChild(rLabel);
 
@@ -2897,25 +2961,45 @@ function appendSetCard(setData) {
     doneBtn.className = 'set-card-done';
     doneBtn.textContent = '完了';
     doneBtn.addEventListener('click', () => {
-        const actualW = wInput.value;
-        const actualR = rInput.value;
+        const actualW = wInput.value || weight;
+        const actualR = rInput.value || reps;
         card.classList.add('completed');
 
-        // Show result line
-        const resultEl = document.createElement('div');
-        resultEl.className = 'set-card-result';
-        resultEl.textContent = `✓ ${actualW}${unit || 'kg'} × ${actualR}回`;
-        card.appendChild(resultEl);
-        card.querySelector('.set-card-result').style.display = 'block';
+        // Show result
+        const resultEl = card.querySelector('.set-card-result');
+        if (resultEl) { resultEl.textContent = `✓ ${actualW}${unit || 'kg'} × ${actualR}回`; resultEl.style.display = 'block'; }
 
-        // Send completion to AI
-        const msg = `セット${set}完了: ${exercise} ${actualW}${unit || 'kg'} × ${actualR}回`;
+        // Update session state
+        if (_sessionPlan) {
+            const ex = _sessionPlan.exercises[_sessionPlan.exIdx];
+            if (ex) {
+                ex.results.push({ w: actualW, r: actualR });
+                // Update default weight for next set of this exercise
+                ex.weight = actualW;
+                if (ex.results.length >= ex.totalSets) {
+                    _sessionPlan.exIdx++;
+                }
+            }
+        }
+
+        // Send result to AI for coaching only
+        const isLastSet = _sessionPlan ? (_sessionPlan.exercises[_sessionPlan.exIdx - 1]?.results.length >= (_sessionPlan.exercises[_sessionPlan.exIdx - 1]?.totalSets)) : false;
+        const nextEx   = _sessionPlan?.exercises[_sessionPlan?.exIdx];
+        let msg = `セット${set}完了: ${exercise} ${actualW}${unit || 'kg'} × ${actualR}回。`;
+        if (nextEx && nextEx.name !== exercise) {
+            msg += `次は${nextEx.name}。`;
+        } else if (_sessionPlan && !nextEx) {
+            msg += '全種目終了。';
+        }
+        msg += 'コーチングをください。';
         $chatInput.value = msg;
         sendMessage();
+
+        // Show next set card immediately (don't wait for AI)
+        showNextSetCard(false);
     });
     card.appendChild(doneBtn);
 
-    // Result placeholder (shown after completion)
     const resultEl = document.createElement('div');
     resultEl.className = 'set-card-result';
     card.appendChild(resultEl);
