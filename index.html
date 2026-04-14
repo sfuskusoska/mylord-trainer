@@ -2228,6 +2228,19 @@ async function sendMessage() {
                         notice.textContent = '自動保存: ' + saved;
                         setTimeout(() => { notice.textContent = ''; }, 4000);
                     }
+                    // dayType が保存されたら dailySummaries に簡易ログを自動記録
+                    if (fields.dayType) {
+                        const db2 = DB.get();
+                        if (!db2.dailySummaries) db2.dailySummaries = {};
+                        if (!db2.dailySummaries[chatViewDate]) {
+                            const parts = [];
+                            if (fields.dayType)  parts.push(fields.dayType);
+                            if (fields.training) parts.push(fields.training);
+                            if (fields.weight)   parts.push(fields.weight + 'kg');
+                            db2.dailySummaries[chatViewDate] = parts.join(' / ') || fields.dayType;
+                            DB.save(db2);
+                        }
+                    }
                 }
             } catch {}
             reply = reply.replace(/<!--RECORD:.*?-->/s, '').trim();
@@ -2284,16 +2297,29 @@ async function callGroq(apiKey, imageB64 = null, imageMime = 'image/jpeg') {
 - 朝: プロテインのみ / 昼: 職場近くの外食 / 夜: 自炊（最近外食増加）
 - 夏に向けて食事制限を取り入れたい
 
-【トレーニング分割プラン】
-- Day 1: 胸・三頭筋（前回4/6実施済み）
-- Day 2: 背中・二頭筋 ← 次のセッション
-- Day 3: 下半身・体幹
-- Day 4: 肩・腕＋有酸素
-
-【前回セッション結果 (2026/04/06 Day1)】
-- ベンチプレス: 60kg×10 / 70kg×10 / 80kg×7 / 80kg×8
-- アシステッドディップス: 40kg×10 / 40kg×6 / 50kg×12 / 50kg×8
-- インクラインプレス(マシン両側30kg): ×10 / ×8 / ×8 / ×5 + 追加2セット
+${(() => {
+    const dayOrder = ['Day1','Day2','Day3','Day4'];
+    const dayNames = { Day1:'胸・三頭筋', Day2:'背中・二頭筋', Day3:'下半身・体幹', Day4:'肩・腕＋有酸素' };
+    const trainRecs = Object.entries(recs)
+        .filter(([k,v]) => v.dayType && dayOrder.includes(v.dayType))
+        .sort(([a],[b]) => a < b ? -1 : 1);
+    const lastEntry  = trainRecs[trainRecs.length - 1];
+    const lastType   = lastEntry?.[1]?.dayType;
+    const lastDate   = lastEntry?.[0];
+    const nextType   = lastType
+        ? dayOrder[(dayOrder.indexOf(lastType) + 1) % dayOrder.length]
+        : 'Day1';
+    const splitStr = dayOrder.map(d => {
+        let line = `- ${d}: ${dayNames[d]}`;
+        if (d === lastType && lastDate) line += `（前回${lastDate}実施済み）`;
+        if (d === nextType) line += ` ← 次のセッション`;
+        return line;
+    }).join('\n');
+    const lastTrainStr = lastEntry
+        ? `【前回セッション結果 (${lastDate} ${lastType})】\n- ${lastEntry[1].training || '記録なし'}`
+        : '【前回セッション結果】\nまだ記録なし（初回セッションです）';
+    return `【トレーニング分割プラン】\n${splitStr}\n\n${lastTrainStr}`;
+})()}
 
 【本日 (${DB.todayStr()})の記録】
 - 体重: ${rec.weight ? rec.weight + 'kg' : '未記録'}
@@ -2707,11 +2733,39 @@ function appendChecklist(exercises) {
     exercises.forEach(ex => {
         const exSets = sets.filter(s => s.exerciseName === ex.name);
 
-        // Exercise header
+        // Exercise header with editable weight
         const header = document.createElement('div');
         header.className = 'checklist-ex-header';
-        header.innerHTML = `<span class="checklist-ex-name">${ex.name}</span>`
-            + (ex.weight || ex.reps ? `<span class="checklist-ex-meta">${[ex.weight, ex.reps && ex.reps + '回'].filter(Boolean).join(' × ')}</span>` : '');
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'checklist-ex-name';
+        nameSpan.textContent = ex.name;
+        header.appendChild(nameSpan);
+
+        const metaWrap = document.createElement('span');
+        metaWrap.className = 'checklist-ex-meta';
+        metaWrap.style.display = 'flex';
+        metaWrap.style.alignItems = 'center';
+        metaWrap.style.gap = '4px';
+
+        const weightInput = document.createElement('input');
+        weightInput.type = 'text';
+        weightInput.value = ex.weight || '';
+        weightInput.placeholder = 'kg';
+        weightInput.style.cssText = 'width:52px;font-size:12px;padding:2px 4px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:Consolas,monospace;text-align:center;';
+        weightInput.addEventListener('change', () => {
+            exSets.forEach(s => { s.weight = weightInput.value; });
+            saveChecklistToRecord();
+        });
+
+        if (ex.reps) {
+            const repsSpan = document.createElement('span');
+            repsSpan.textContent = '× ' + ex.reps + '回';
+            metaWrap.appendChild(weightInput);
+            metaWrap.appendChild(repsSpan);
+        } else {
+            metaWrap.appendChild(weightInput);
+        }
+        header.appendChild(metaWrap);
         card.appendChild(header);
 
         // Set rows
@@ -2777,15 +2831,19 @@ function updateChecklistProgress(id) {
 
 function saveChecklistToRecord() {
     if (!_activeChecklist) return;
-    // Group by exercise for compact summary
+    // Group by exercise for compact summary (include actual weight)
     const grouped = {};
     _activeChecklist.sets.forEach(s => {
-        if (!grouped[s.exerciseName]) grouped[s.exerciseName] = { done: 0, total: 0 };
+        if (!grouped[s.exerciseName]) grouped[s.exerciseName] = { done: 0, total: 0, weight: s.weight || '' };
         grouped[s.exerciseName].total++;
+        grouped[s.exerciseName].weight = s.weight || grouped[s.exerciseName].weight;
         if (s.done) grouped[s.exerciseName].done++;
     });
     const summary = Object.entries(grouped)
-        .map(([name, g]) => `${name} ${g.done}/${g.total}セット`)
+        .map(([name, g]) => {
+            const w = g.weight ? g.weight + ' ' : '';
+            return `${name} ${w}${g.done}/${g.total}セット`;
+        })
         .join(', ');
     DB.patchRecord({ checklistSummary: summary });
 }
@@ -4096,15 +4154,18 @@ if (!DB.get().apiKey) {
         screen.classList.add('active');
         input.value = '';
         errorDiv.textContent = '';
-        // Face ID ボタンを表示するか判定
+        // Face ID が登録済みならパスワード欄を隠してFace IDのみ表示
         if (canWebAuthn() && localStorage.getItem(CRED_KEY)) {
             faceBtn.style.display  = 'block';
-            divider.style.display  = 'block';
-        }
-        // Face ID が登録済みなら自動起動
-        if (canWebAuthn() && localStorage.getItem(CRED_KEY)) {
+            divider.style.display  = 'none';
+            input.style.display    = 'none';
+            document.getElementById('pw-submit').style.display = 'none';
             tryFaceID();
         } else {
+            faceBtn.style.display  = 'none';
+            divider.style.display  = 'none';
+            input.style.display    = '';
+            document.getElementById('pw-submit').style.display = '';
             setTimeout(() => input.focus(), 100);
         }
     }
@@ -4149,7 +4210,11 @@ if (!DB.get().apiKey) {
                 showApp();
             }
         } catch(e) {
-            // キャンセルされたら手動入力へ
+            // キャンセル・失敗時はパスワード入力へフォールバック
+            faceBtn.style.display  = 'block';
+            divider.style.display  = 'block';
+            input.style.display    = '';
+            document.getElementById('pw-submit').style.display = '';
             setTimeout(() => input.focus(), 100);
         }
     }
