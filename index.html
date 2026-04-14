@@ -717,33 +717,38 @@
                 overflow: hidden;
             }
 
-            /* ── メインエリア ── */
+            /* ── メインエリア：flex にして子が flex:1 で伸びるようにする ── */
             .main {
                 flex: 1;
                 min-height: 0;
                 overflow: hidden;
-                /* nav はフロー内なので padding 不要 */
-                padding-bottom: 0;
+                display: flex;
+                flex-direction: column;
             }
 
             /* ── 全ビュー ── */
             .view {
                 display: none !important;
-                height: 100%;
+            }
+            /* 非チャットビュー：スクロール可能なブロック */
+            .view.active {
+                display: block !important;
+                flex: 1;
+                min-height: 0;
                 overflow-y: auto;
                 -webkit-overflow-scrolling: touch;
                 padding: 16px;
                 box-sizing: border-box;
             }
-            .view.active { display: block !important; }
 
             /* ── チャットビュー ── */
             #view-trainer.active {
                 display: flex !important;
                 flex-direction: column;
+                flex: 1;
+                min-height: 0;
                 padding: 0;
                 overflow: hidden;
-                height: 100%;
             }
             .trainer-view-wrap {
                 flex: 1; min-height: 0;
