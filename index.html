@@ -1382,6 +1382,83 @@
             cursor: default;
         }
 
+        /* ===== REST TIMER ===== */
+        #rest-timer-bar {
+            display: none;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: var(--bg-card);
+            border-bottom: 2px solid var(--accent);
+            padding: 8px 16px;
+            flex-shrink: 0;
+            align-items: center;
+            gap: 12px;
+        }
+        #rest-timer-bar.active { display: flex; }
+        #rest-timer-label { font-size: 13px; color: var(--text-muted); flex: 1; }
+        #rest-timer-count {
+            font-size: 22px; font-weight: 700;
+            font-family: 'Consolas', monospace;
+            color: var(--accent);
+            min-width: 48px; text-align: right;
+        }
+        #rest-timer-count.warning { color: var(--warning); }
+        #rest-timer-count.done    { color: var(--success); }
+        #rest-timer-skip {
+            font-size: 12px; padding: 4px 10px;
+            border: 1px solid var(--border); border-radius: 6px;
+            background: var(--bg); color: var(--text-muted); cursor: pointer;
+        }
+
+        /* ===== SET CARD: PREVIOUS PERFORMANCE ===== */
+        .set-card-prev {
+            font-size: 11px;
+            color: var(--text-muted);
+            background: var(--bg);
+            border-radius: 6px;
+            padding: 5px 8px;
+            margin-bottom: 10px;
+            font-family: 'Consolas', monospace;
+        }
+        .set-card-prev strong { color: var(--warning); }
+        .set-card-1rm {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-align: center;
+            margin-top: 6px;
+        }
+        .set-card-1rm span { color: var(--accent); font-weight: 700; }
+
+        /* ===== EXERCISE HISTORY ===== */
+        .ex-history-card { margin-top: 0; }
+        .ex-history-select {
+            width: 100%; padding: 8px 10px;
+            background: var(--bg); border: 1px solid var(--border);
+            border-radius: 8px; color: var(--text); font-size: 14px;
+            margin-bottom: 12px;
+        }
+        .ex-history-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .ex-history-table th {
+            text-align: left; padding: 4px 6px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-muted); font-weight: 600; font-size: 11px;
+        }
+        .ex-history-table td { padding: 5px 6px; border-bottom: 1px solid var(--border-muted); }
+        .ex-history-table tr:last-child td { border-bottom: none; }
+        .ex-history-1rm { color: var(--accent); font-family: 'Consolas', monospace; }
+        .ex-history-pr { color: var(--success); font-weight: 700; }
+        .ex-history-empty { color: var(--text-muted); font-size: 13px; padding: 12px 0; }
+
+        /* ===== REPEAT WORKOUT ===== */
+        .repeat-workout-btn {
+            width: 100%; padding: 9px; font-size: 13px;
+            background: var(--bg); border: 1px solid var(--accent);
+            color: var(--accent); border-radius: 8px; cursor: pointer;
+            margin-top: 8px;
+        }
+        .repeat-workout-btn:active { background: var(--accent-dim); }
+
         /* ===== DAILY SUMMARY ===== */
         .summary-item {
             border-bottom: 1px solid var(--border-muted);
@@ -1479,6 +1556,11 @@
                         <span id="chat-date-label"></span>
                         <button class="btn btn-secondary cal-nav" id="chat-date-next">&#8250;</button>
                         <button class="btn btn-secondary" id="btn-gen-summary" style="font-size:11px; padding:4px 8px; margin-left:auto;">📋まとめ</button>
+                    </div>
+                    <div id="rest-timer-bar">
+                        <span id="rest-timer-label">休憩タイマー</span>
+                        <span id="rest-timer-count">90</span>
+                        <button id="rest-timer-skip">スキップ</button>
                     </div>
                     <div class="chat-messages" id="chat-messages"></div>
                     <div class="typing-indicator" id="typing"></div>
@@ -1628,6 +1710,22 @@
             <div class="card">
                 <div class="card-title">日次ログ</div>
                 <div id="daily-summaries-list"></div>
+            </div>
+
+            <!-- Exercise History -->
+            <div class="card ex-history-card">
+                <div class="card-title">種目別履歴</div>
+                <select class="ex-history-select" id="ex-history-select">
+                    <option value="">種目を選択...</option>
+                </select>
+                <div id="ex-history-content"><p class="ex-history-empty">種目を選択すると過去の記録が表示されます</p></div>
+            </div>
+
+            <!-- Repeat last workout -->
+            <div class="card">
+                <div class="card-title">前回ワークアウト</div>
+                <div id="last-workout-summary" style="font-size:13px; color:var(--text-muted); margin-bottom:8px;">記録なし</div>
+                <button class="repeat-workout-btn" id="btn-repeat-workout">↩ 前回と同じメニューで始める</button>
             </div>
 
             <!-- Body Visualizer -->
@@ -1946,7 +2044,8 @@ const DB = {
             records: {},
             schedule: {},
             chatHistory: {},    // date-keyed: { "2026-04-09": [{role,content,ts},...] }
-            dailySummaries: {}  // date-keyed: { "2026-04-09": "summary text" }
+            dailySummaries: {},  // date-keyed: { "2026-04-09": "summary text" }
+            workouts: {}         // date-keyed: { dayType, exercises:[{name,sets:[{weight,reps,unit,ts}]}] }
         };
     },
 
@@ -1983,6 +2082,8 @@ const DB = {
         }
         if (!data.chatHistory || typeof data.chatHistory !== 'object') data.chatHistory = {};
         if (!data.records || typeof data.records !== 'object') data.records = {};
+        if (!data.workouts || typeof data.workouts !== 'object') data.workouts = {};
+        if (!data.dailySummaries || typeof data.dailySummaries !== 'object') data.dailySummaries = {};
         if (typeof data.apiKey !== 'string') data.apiKey = '';
         if (!data.apiKey) data.apiKey = 'gsk_JJpjPlAsVVdVfy' + 'mlCm6iWGdyb3FYlnp0YivBu1ApYDWmHBZrQouO';
         localStorage.setItem(DB_KEY, JSON.stringify(data));
@@ -2081,6 +2182,82 @@ const DB = {
             }
         }
         return streak;
+    },
+
+    // ===== WORKOUT METHODS =====
+
+    // Save a completed set immediately (no AI dependency)
+    saveSetResult(dateStr, exerciseName, setData) {
+        const d = this.get();
+        if (!d.workouts) d.workouts = {};
+        if (!d.workouts[dateStr]) d.workouts[dateStr] = { dayType: d.records?.[dateStr]?.dayType || '', exercises: [] };
+        const w = d.workouts[dateStr];
+        let ex = w.exercises.find(e => e.name === exerciseName);
+        if (!ex) { ex = { name: exerciseName, sets: [] }; w.exercises.push(ex); }
+        ex.sets.push({ weight: setData.weight, reps: setData.reps, unit: setData.unit || 'kg', ts: new Date().toISOString() });
+        this.save(d);
+    },
+
+    // Set dayType for a workout session
+    setWorkoutDayType(dateStr, dayType) {
+        const d = this.get();
+        if (!d.workouts) d.workouts = {};
+        if (!d.workouts[dateStr]) d.workouts[dateStr] = { dayType, exercises: [] };
+        else d.workouts[dateStr].dayType = dayType;
+        this.save(d);
+    },
+
+    // Get exercise history (most recent first)
+    getExerciseHistory(exerciseName, limit = 10) {
+        const d = this.get();
+        const history = [];
+        Object.entries(d.workouts || {})
+            .sort(([a],[b]) => b.localeCompare(a))
+            .forEach(([date, w]) => {
+                const ex = (w.exercises || []).find(e => e.name === exerciseName);
+                if (ex && ex.sets.length) history.push({ date, sets: ex.sets, dayType: w.dayType });
+            });
+        return history.slice(0, limit);
+    },
+
+    // Get the most recent sets for an exercise (for pre-filling set card)
+    getLastSession(exerciseName) {
+        const h = this.getExerciseHistory(exerciseName, 1);
+        return h.length ? h[0] : null;
+    },
+
+    // Get all exercise names ever recorded
+    allExerciseNames() {
+        const d = this.get();
+        const names = new Set();
+        Object.values(d.workouts || {}).forEach(w => (w.exercises || []).forEach(e => names.add(e.name)));
+        return [...names].sort();
+    },
+
+    // Brzycki 1RM estimate
+    calc1RM(weight, reps) {
+        const w = parseFloat(weight);
+        const r = parseInt(reps);
+        if (!w || !r || r < 1) return null;
+        if (r === 1) return w;
+        return Math.round(w * (36 / (37 - Math.min(r, 36))));
+    },
+
+    // Get recent workouts for system prompt context (last N sessions)
+    getRecentWorkoutSummary(limit = 5) {
+        const d = this.get();
+        return Object.entries(d.workouts || {})
+            .filter(([,w]) => w.exercises?.length)
+            .sort(([a],[b]) => b.localeCompare(a))
+            .slice(0, limit)
+            .map(([date, w]) => {
+                const exStr = (w.exercises || []).map(e => {
+                    const setsStr = e.sets.map(s => `${s.weight}${s.unit||'kg'}×${s.reps}`).join('/');
+                    return `${e.name}[${setsStr}]`;
+                }).join(', ');
+                return `${date}(${w.dayType||'?'}): ${exStr}`;
+            })
+            .join('\n') || '記録なし';
     }
 };
 
@@ -2205,20 +2382,22 @@ function setChatDate(dateStr) {
     renderChatHistory();
 }
 
-document.getElementById('chat-date-prev').addEventListener('click', () => {
-    const dates = DB.chatDates();
-    const allDates = [...new Set([...dates, DB.todayStr()])].sort();
-    const idx = allDates.indexOf(chatViewDate);
-    if (idx > 0) setChatDate(allDates[idx - 1]);
-});
-document.getElementById('chat-date-next').addEventListener('click', () => {
+// Navigate 1 day at a time (supports 3 months of history)
+function shiftChatDate(days) {
+    const d = new Date(chatViewDate + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    const next = d.toISOString().split('T')[0];
     const today = DB.todayStr();
-    if (chatViewDate >= today) return;
-    const dates = DB.chatDates();
-    const allDates = [...new Set([...dates, today])].sort();
-    const idx = allDates.indexOf(chatViewDate);
-    if (idx < allDates.length - 1) setChatDate(allDates[idx + 1]);
-});
+    if (next > today) return;
+    // Don't go earlier than 180 days ago
+    const limit = new Date();
+    limit.setDate(limit.getDate() - 180);
+    const limitStr = limit.toISOString().split('T')[0];
+    if (next < limitStr) return;
+    setChatDate(next);
+}
+document.getElementById('chat-date-prev').addEventListener('click', () => shiftChatDate(-1));
+document.getElementById('chat-date-next').addEventListener('click', () => shiftChatDate(+1));
 
 let _pendingImageB64 = null;
 let _pendingImageMime = 'image/jpeg';
@@ -2423,46 +2602,39 @@ async function callGroq(apiKey, imageB64 = null, imageMime = 'image/jpeg') {
 
     const system = `専属トレーナー。ユーザーを「マイロード」と呼ぶ。数値根拠で簡潔に。日本語。
 
-[プロフィール] 42歳男性180cm 体重${currW}kg→目標${targetW}kg 筋トレ歴2年中級 ジム:フィットプレイス24南森町 シラスアレルギー
+[プロフィール] 42歳男性180cm 体重${currW}kg→目標${targetW}kg(残${(currW-targetW).toFixed(1)}kg) 筋トレ歴2年中級 ジム:フィットプレイス24南森町 シラスアレルギー 目標:6月W杯時期に現役時代のように走れる体
 
 ${(() => {
     const dayOrder = ['Day1','Day2','Day3','Day4'];
     const dayNames = { Day1:'胸・三頭筋', Day2:'背中・二頭筋', Day3:'下半身・体幹', Day4:'肩・腕＋有酸素' };
-    // dayTypeあり優先、なければtrainingありで直近を探す
-    const byDay = Object.entries(recs).filter(([k,v]) => v.dayType && dayOrder.includes(v.dayType)).sort(([a],[b])=>a<b?-1:1);
-    const lastEntry = byDay[byDay.length - 1];
+    const wk = d.workouts || {};
+    const byDay = Object.entries(wk).filter(([,w])=>w.dayType&&dayOrder.includes(w.dayType)).sort(([a],[b])=>a<b?-1:1);
+    const lastEntry = byDay[byDay.length-1];
     const lastType  = lastEntry?.[1]?.dayType;
     const lastDate  = lastEntry?.[0];
     const nextType  = lastType ? dayOrder[(dayOrder.indexOf(lastType)+1)%dayOrder.length] : 'Day1';
-    const split = dayOrder.map(d=>`- ${d}: ${dayNames[d]}${d===lastType&&lastDate?`（前回${lastDate}実施）`:''}${d===nextType?' ← 次のセッション':''}`).join('\n');
-
-    // 直近7日のトレーニング記録（dayType問わず）
-    const recentTrain = Object.entries(recs)
-        .filter(([k,v]) => v.training || v.checklistSummary)
-        .sort(([a],[b])=>a<b?-1:1).slice(-7)
-        .map(([dt,v])=>`${dt}: ${v.dayType||'?'} / ${v.training||v.checklistSummary||''}`)
-        .join('\n') || '記録なし';
-
-    return `【トレーニング分割プラン】\n${split}\n\n【直近セッション記録】\n${recentTrain}`;
+    const split = dayOrder.map(dn=>`- ${dn}: ${dayNames[dn]}${dn===lastType&&lastDate?`（前回${lastDate}）`:''}${dn===nextType?' ←次':''}`).join('\n');
+    return `【分割プラン】\n${split}`;
 })()}
 
+【直近ワークアウト記録(最新5件)】
+${DB.getRecentWorkoutSummary(5)}
+
 【本日 ${DB.todayStr()}】体重:${rec.weight?rec.weight+'kg':'未記録'} 睡眠:${rec.sleep?rec.sleep+'h':'未記録'} 食事:朝${rec.morning?'済':'未'}昼${rec.lunch?'済':'未'}夜${rec.night?'済':'未'}
-【体重推移(7日)】${weekStr}
-【日次ログ(3件)】${(() => { const s=d.dailySummaries||{}; const r=Object.keys(s).sort().slice(-3); return r.length?r.map(dt=>`${dt}:${s[dt]}`).join(' / '):'なし'; })()}
+【体重推移】${weekStr}
 
 [出力ルール — 厳守]
 メニュー提示時: 会話文に種目リスト・表を書かない。末尾に必ず↓
 <!--MENU:[{"name":"種目名","sets":"4","reps":"8","weight":"70kg"},...]-->
 
-セット完了報告/コーチング依頼を受けたとき:
-- 1〜2文の簡潔なコメントのみ（「よし」「次も同じ重量」など）
-- セッション終了・次の日のプログラムは絶対に言わない（ユーザーが明示的に終了と言うまで）
-- 次セットの重量調整が必要なら末尾に↓（省略可）
+セット完了報告/コーチング依頼時:
+- 1〜2文コメントのみ。セッション終了・翌日プログラムは言わない（ユーザーが終了と言うまで）
+- 重量調整が必要な場合のみ末尾に↓
 <!--SET:{"exercise":"種目名","set":0,"total":0,"weight":"30","unit":"kg","reps":"12"}-->
 
-記録報告時: 末尾に必ず↓
+体重・食事・睡眠・トレーニング報告時: 末尾に必ず↓
 <!--RECORD:{"weight":null,"sleep":null,"morning":null,"lunch":null,"night":null,"training":"","dayType":""}-->
-(報告値のみ入れる。null以外を省略しない)`;
+(報告値のみ入れる。未言及はnull)`;
 
     // Build messages: today's chat only (last 8 messages)
     const todayMsgs = (d.chatHistory[chatViewDate] || []).slice(-8)
@@ -2544,7 +2716,15 @@ function renderProgress() {
     drawBodyVisualizer();
     renderHeatmap();
     drawRadarChart();
+    populateExerciseSelect();
+    renderLastWorkoutSummary();
 }
+
+// Wire up exercise history select
+document.addEventListener('DOMContentLoaded', () => {
+    const sel = document.getElementById('ex-history-select');
+    if (sel) sel.addEventListener('change', () => renderExerciseHistory(sel.value));
+});
 
 function drawChart() {
     const canvas = document.getElementById('weight-chart');
@@ -2890,13 +3070,21 @@ function showNextSetCard(firstOfSession = false) {
     if (!_sessionPlan) return;
     const ex = _sessionPlan.exercises[_sessionPlan.exIdx];
     if (!ex) {
+        stopRestTimer();
         // All exercises done
-        appendBubble('全種目が完了しました！お疲れ様でした。\n追加したい種目があれば入力してください。', 'trainer');
-        // Save record
         const summary = _sessionPlan.exercises
-            .map(e => `${e.name} ${e.results.map(r=>`${r.w}${e.unit}×${r.r}`).join('/')}`)
+            .map(e => `${e.name} ${e.results.map(r=>`${r.w}${e.unit||'kg'}×${r.r}`).join('/')}`)
             .join(', ');
-        DB.patchRecord({ training: summary });
+        // Save dayType and training summary to records
+        const dayType = _sessionPlan.dayType || DB.todayRecord().dayType || '';
+        DB.patchRecord({ training: summary, dayType });
+        // Auto-save dailySummaries
+        const db2 = DB.get();
+        if (!db2.dailySummaries[chatViewDate]) {
+            db2.dailySummaries[chatViewDate] = `${dayType} / ${summary}`;
+            DB.save(db2);
+        }
+        appendBubble(`全種目完了！お疲れ様でした 🏆\n${summary}\n\n追加種目があればチャットで伝えてください。`, 'trainer');
         _sessionPlan = null;
         return;
     }
@@ -2904,7 +3092,10 @@ function showNextSetCard(firstOfSession = false) {
     appendSetCard({ exercise: ex.name, set: setNum, total: ex.totalSets, weight: ex.weight, unit: ex.unit, reps: ex.reps });
 
     if (firstOfSession) {
-        $chatInput.value = `セッション開始。まず ${ex.name} から。コーチングをください。`;
+        // Save dayType to workouts DB at session start
+        const dayType = DB.todayRecord().dayType || _sessionPlan.dayType || '';
+        DB.setWorkoutDayType(chatViewDate, dayType);
+        $chatInput.value = `セッション開始（${dayType||'今日'}）。まず ${ex.name} から始めます。コーチングをください。`;
         sendMessage();
     }
 }
@@ -2913,9 +3104,11 @@ function showNextSetCard(firstOfSession = false) {
 // Called by the app (showNextSetCard). set/total come from app state, not AI.
 function appendSetCard(setData) {
     const { exercise, set, total, weight, unit, reps } = setData;
+    const u = unit || 'kg';
     const card = document.createElement('div');
     card.className = 'set-card';
 
+    // Header
     const header = document.createElement('div');
     header.className = 'set-card-header';
     header.textContent = `セット ${set} / ${total}`;
@@ -2925,6 +3118,20 @@ function appendSetCard(setData) {
     nameEl.className = 'set-card-name';
     nameEl.textContent = exercise;
     card.appendChild(nameEl);
+
+    // Previous performance from DB
+    const lastSession = DB.getLastSession(exercise);
+    if (lastSession) {
+        const prevDiv = document.createElement('div');
+        prevDiv.className = 'set-card-prev';
+        const bestSet = lastSession.sets.reduce((best, s) => {
+            const rm = DB.calc1RM(s.weight, s.reps);
+            return rm > DB.calc1RM(best.weight, best.reps) ? s : best;
+        }, lastSession.sets[0]);
+        const setsStr = lastSession.sets.map(s => `${s.weight}${s.unit||'kg'}×${s.reps}`).join(' / ');
+        prevDiv.innerHTML = `前回 <strong>${lastSession.date}</strong>: ${setsStr}`;
+        card.appendChild(prevDiv);
+    }
 
     // Editable inputs
     const inputsRow = document.createElement('div');
@@ -2937,8 +3144,9 @@ function appendSetCard(setData) {
     wInput.value = weight || '';
     wInput.placeholder = '0';
     wInput.min = '0';
+    wInput.step = '0.5';
     const wLabel = document.createElement('label');
-    wLabel.textContent = unit || 'kg';
+    wLabel.textContent = u;
     wGrp.appendChild(wInput);
     wGrp.appendChild(wLabel);
 
@@ -2952,7 +3160,7 @@ function appendSetCard(setData) {
     rInput.type = 'number';
     rInput.value = reps || '';
     rInput.placeholder = '0';
-    rInput.min = '0';
+    rInput.min = '1';
     const rLabel = document.createElement('label');
     rLabel.textContent = '回';
     rGrp.appendChild(rInput);
@@ -2963,47 +3171,63 @@ function appendSetCard(setData) {
     inputsRow.appendChild(rGrp);
     card.appendChild(inputsRow);
 
+    // Live 1RM display
+    const rm1El = document.createElement('div');
+    rm1El.className = 'set-card-1rm';
+    function update1RM() {
+        const rm = DB.calc1RM(wInput.value, rInput.value);
+        rm1El.innerHTML = rm ? `推定1RM: <span>${rm}${u}</span>` : '';
+    }
+    wInput.addEventListener('input', update1RM);
+    rInput.addEventListener('input', update1RM);
+    update1RM();
+    card.appendChild(rm1El);
+
     // 完了 button
     const doneBtn = document.createElement('button');
     doneBtn.className = 'set-card-done';
     doneBtn.textContent = '完了';
     doneBtn.addEventListener('click', () => {
-        const actualW = wInput.value || weight;
-        const actualR = rInput.value || reps;
+        const actualW = parseFloat(wInput.value) || parseFloat(weight) || 0;
+        const actualR = parseInt(rInput.value)   || parseInt(reps)   || 0;
         card.classList.add('completed');
 
-        // Show result
+        // Show result + 1RM
+        const rm = DB.calc1RM(actualW, actualR);
         const resultEl = card.querySelector('.set-card-result');
-        if (resultEl) { resultEl.textContent = `✓ ${actualW}${unit || 'kg'} × ${actualR}回`; resultEl.style.display = 'block'; }
+        if (resultEl) {
+            resultEl.textContent = `✓ ${actualW}${u} × ${actualR}回${rm ? '  (1RM≈' + rm + u + ')' : ''}`;
+            resultEl.style.display = 'block';
+        }
+
+        // ★ Immediate DB save — no AI dependency
+        DB.saveSetResult(chatViewDate, exercise, { weight: actualW, reps: actualR, unit: u });
 
         // Update session state
         if (_sessionPlan) {
             const ex = _sessionPlan.exercises[_sessionPlan.exIdx];
             if (ex) {
                 ex.results.push({ w: actualW, r: actualR });
-                // Update default weight for next set of this exercise
-                ex.weight = actualW;
-                if (ex.results.length >= ex.totalSets) {
-                    _sessionPlan.exIdx++;
-                }
+                ex.weight = String(actualW);
+                if (ex.results.length >= ex.totalSets) _sessionPlan.exIdx++;
             }
         }
 
-        // Send result to AI for coaching only
-        const isLastSet = _sessionPlan ? (_sessionPlan.exercises[_sessionPlan.exIdx - 1]?.results.length >= (_sessionPlan.exercises[_sessionPlan.exIdx - 1]?.totalSets)) : false;
-        const nextEx   = _sessionPlan?.exercises[_sessionPlan?.exIdx];
-        let msg = `セット${set}完了: ${exercise} ${actualW}${unit || 'kg'} × ${actualR}回。`;
-        if (nextEx && nextEx.name !== exercise) {
-            msg += `次は${nextEx.name}。`;
-        } else if (_sessionPlan && !nextEx) {
-            msg += '全種目終了。';
-        }
-        msg += 'コーチングをください。';
-        $chatInput.value = msg;
-        sendMessage();
+        // ★ Start rest timer
+        const restSec = _sessionPlan?.restSeconds || 90;
+        startRestTimer(restSec, exercise, set);
 
-        // Show next set card immediately (don't wait for AI)
+        // Show next set card immediately
         showNextSetCard(false);
+
+        // Send to AI for coaching (non-blocking)
+        const nextEx = _sessionPlan?.exercises[_sessionPlan?.exIdx];
+        let coachMsg = `セット${set}完了: ${exercise} ${actualW}${u}×${actualR}回。`;
+        if (nextEx && nextEx.name !== exercise) coachMsg += `次は${nextEx.name}。`;
+        else if (_sessionPlan && !nextEx) coachMsg += '全種目終了。';
+        coachMsg += 'コーチングをください。';
+        $chatInput.value = coachMsg;
+        sendMessage();
     });
     card.appendChild(doneBtn);
 
@@ -3013,6 +3237,149 @@ function appendSetCard(setData) {
 
     $chatMsgs.appendChild(card);
     $chatMsgs.scrollTop = $chatMsgs.scrollHeight;
+}
+
+// ===== REST TIMER =====
+let _restTimerInterval = null;
+
+function startRestTimer(seconds, exerciseName, setNum) {
+    const bar   = document.getElementById('rest-timer-bar');
+    const label = document.getElementById('rest-timer-label');
+    const count = document.getElementById('rest-timer-count');
+    const skip  = document.getElementById('rest-timer-skip');
+    if (!bar) return;
+
+    clearInterval(_restTimerInterval);
+    let remaining = seconds;
+    bar.classList.add('active');
+    count.className = '';
+    label.textContent = `${exerciseName} セット${setNum} 完了 — 休憩`;
+
+    function tick() {
+        count.textContent = remaining;
+        if (remaining <= 10) count.className = 'warning';
+        if (remaining <= 0) {
+            count.textContent = '完了';
+            count.className = 'done';
+            label.textContent = '休憩終了 — 次のセットへ';
+            clearInterval(_restTimerInterval);
+            // Vibrate on supported devices
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+            setTimeout(() => bar.classList.remove('active'), 3000);
+        }
+        remaining--;
+    }
+    tick();
+    _restTimerInterval = setInterval(tick, 1000);
+}
+
+function stopRestTimer() {
+    clearInterval(_restTimerInterval);
+    const bar = document.getElementById('rest-timer-bar');
+    if (bar) bar.classList.remove('active');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const skip = document.getElementById('rest-timer-skip');
+    if (skip) skip.addEventListener('click', stopRestTimer);
+});
+
+// ===== EXERCISE HISTORY =====
+function renderExerciseHistory(exerciseName) {
+    const content = document.getElementById('ex-history-content');
+    if (!content) return;
+    if (!exerciseName) {
+        content.innerHTML = '<p class="ex-history-empty">種目を選択すると過去の記録が表示されます</p>';
+        return;
+    }
+
+    const history = DB.getExerciseHistory(exerciseName, 15);
+    if (!history.length) {
+        content.innerHTML = '<p class="ex-history-empty">まだ記録がありません</p>';
+        return;
+    }
+
+    // Calculate all-time best 1RM
+    let bestRM = 0;
+    history.forEach(session => session.sets.forEach(s => {
+        const rm = DB.calc1RM(s.weight, s.reps);
+        if (rm > bestRM) bestRM = rm;
+    }));
+
+    let html = `<p style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">過去最高推定1RM: <strong style="color:var(--success)">${bestRM}kg</strong></p>`;
+    html += '<table class="ex-history-table"><thead><tr><th>日付</th><th>セット内容</th><th>最高1RM</th></tr></thead><tbody>';
+
+    history.forEach(session => {
+        const sessionBest = session.sets.reduce((b, s) => {
+            const rm = DB.calc1RM(s.weight, s.reps);
+            return rm > b ? rm : b;
+        }, 0);
+        const isPR = sessionBest >= bestRM;
+        const setsStr = session.sets.map(s => `${s.weight}${s.unit||'kg'}×${s.reps}`).join(', ');
+        html += `<tr>
+            <td>${session.date}</td>
+            <td style="font-family:Consolas,monospace;font-size:11px">${setsStr}</td>
+            <td class="ex-history-1rm${isPR ? ' ex-history-pr' : ''}">${sessionBest}kg${isPR ? ' 🏆' : ''}</td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    content.innerHTML = html;
+}
+
+function populateExerciseSelect() {
+    const sel = document.getElementById('ex-history-select');
+    if (!sel) return;
+    const names = DB.allExerciseNames();
+    const current = sel.value;
+    sel.innerHTML = '<option value="">種目を選択...</option>';
+    names.forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n;
+        opt.textContent = n;
+        if (n === current) opt.selected = true;
+        sel.appendChild(opt);
+    });
+}
+
+// ===== REPEAT LAST WORKOUT =====
+function renderLastWorkoutSummary() {
+    const summaryEl = document.getElementById('last-workout-summary');
+    const btn       = document.getElementById('btn-repeat-workout');
+    if (!summaryEl || !btn) return;
+
+    const d = DB.get();
+    const entries = Object.entries(d.workouts || {})
+        .filter(([,w]) => w.exercises?.length)
+        .sort(([a],[b]) => b.localeCompare(a));
+
+    if (!entries.length) {
+        summaryEl.textContent = '記録なし';
+        btn.disabled = true;
+        return;
+    }
+
+    const [date, workout] = entries[0];
+    const exList = (workout.exercises || []).map(e => {
+        const lastSet = e.sets[e.sets.length - 1];
+        return `${e.name} (${e.sets.length}セット / 最終${lastSet?.weight||'?'}${lastSet?.unit||'kg'})`;
+    }).join('\n');
+    summaryEl.innerHTML = `<strong>${date} ${workout.dayType||''}</strong><br><span style="white-space:pre-line;font-size:12px">${exList}</span>`;
+    btn.disabled = false;
+
+    btn.onclick = () => {
+        // Build exercises array for menu overview from last workout
+        const exArr = (workout.exercises || []).map(e => ({
+            name: e.name,
+            sets: String(e.sets.length),
+            reps: String(e.sets[e.sets.length-1]?.reps || 10),
+            weight: String(e.sets[e.sets.length-1]?.weight || '') + (e.sets[e.sets.length-1]?.unit || 'kg')
+        }));
+        switchView('trainer');
+        setTimeout(() => {
+            appendBubble(`前回(${date})と同じメニューで始めます。`, 'trainer');
+            appendChecklist(exArr);
+        }, 100);
+    };
 }
 
 // ===== ZUKAN =====
