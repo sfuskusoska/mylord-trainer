@@ -701,18 +701,22 @@
             #card-logout-mobile { display: block !important; }
 
             /* ── body / layout ── */
-            /* interactive-widget=resizes-content により
-               キーボード表示時に dvh が自動で縮む。JS補正は不要。 */
+            /* .layout を position:fixed にする。
+               iOS Safari はドキュメントを動かせなくなるため、
+               textarea フォーカス時の "スクロール位置飛び" が起きない。 */
             html, body {
                 height: 100%;
                 overflow: hidden;
                 overscroll-behavior: none;
             }
             .layout {
+                position: fixed;
+                inset: 0;           /* top/right/bottom/left: 0 */
                 display: flex;
                 flex-direction: column;
-                height: 100dvh;   /* キーボード表示時に自動で縮む */
                 overflow: hidden;
+                /* interactive-widget=resizes-content により
+                   キーボード表示時に fixed の bottom が自動で上がる */
             }
 
             /* ── メインエリア ── */
@@ -4020,7 +4024,24 @@ if (!DB.get().apiKey) {
     document.getElementById('api-alert').style.display = 'block';
 }
 
-// (キーボード表示時の自動スクロールは削除 — スクロール位置は入力フォーカスで変えない)
+// ===== iOS Safari スクロール位置保護 =====
+// textarea フォーカス時に iOS が chat-messages を勝手にスクロールするのを防ぐ
+(function() {
+    if (window.innerWidth > 768) return;
+    const input = document.getElementById('chat-input');
+    const msgs  = document.getElementById('chat-messages');
+    if (!input || !msgs) return;
+
+    input.addEventListener('focus', function() {
+        const saved = msgs.scrollTop;
+        // iOS のスクロール調整完了後に位置を復元
+        requestAnimationFrame(function() {
+            msgs.scrollTop = saved;
+            setTimeout(function() { msgs.scrollTop = saved; }, 100);
+            setTimeout(function() { msgs.scrollTop = saved; }, 300);
+        });
+    });
+})();
 </script>
 
 </div><!-- /#main-content -->
