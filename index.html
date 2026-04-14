@@ -2422,101 +2422,42 @@ async function callGroq(apiKey, imageB64 = null, imageMime = 'image/jpeg') {
         .map(k => `${k.slice(5)}: ${recs[k].weight}kg`)
         .join(', ') || 'なし';
 
-    const system = `あなたは専属パーソナルトレーナー兼栄養士です。ユーザーを必ず「マイロード」と呼んでください。
-データと数値に基づいた論理的・具体的な指示を出してください。甘やかさず、限界を引き出すスタイルで。
-毎回ネットの最新栄養学・トレーニング科学の知識に基づいて正確に答えること。
+    const system = `専属トレーナー。ユーザーを「マイロード」と呼ぶ。数値根拠で簡潔に。日本語。
 
-【マイロードのプロフィール】
-- 42歳・男性・身長180cm
-- 現在体重: ${currW}kg / 開始: ${startW}kg / 目標: ${targetW}kg (${user.deadline || '3ヶ月'})
-- 経過: ${elapsed}日 / 減量実績: ${lost >= 0 ? '-' : '+'}${Math.abs(lost).toFixed(1)}kg / 残り: ${remaining.toFixed(1)}kg
-- 筋トレ歴: 約2年（中級）
-- 目標: 6月ワールドカップ時期に現役時代のように走れる・ボールを蹴れる状態へ
-- ジム: フィットプレイス24 南森町店（フリーウェイト・マシン両方あり）
-
-【食事情報】
-- アレルギー: シラス（それ以外なし）
-- 朝: プロテインのみ / 昼: 職場近くの外食 / 夜: 自炊（最近外食増加）
-- 夏に向けて食事制限を取り入れたい
+[プロフィール] 42歳男性180cm 体重${currW}kg→目標${targetW}kg 筋トレ歴2年中級 ジム:フィットプレイス24南森町 シラスアレルギー
 
 ${(() => {
     const dayOrder = ['Day1','Day2','Day3','Day4'];
-    const dayNames = { Day1:'胸・三頭筋', Day2:'背中・二頭筋', Day3:'下半身・体幹', Day4:'肩・腕＋有酸素' };
+    const dayNames = { Day1:'胸三頭', Day2:'背中二頭', Day3:'下半身体幹', Day4:'肩腕' };
     const trainRecs = Object.entries(recs)
         .filter(([k,v]) => v.dayType && dayOrder.includes(v.dayType))
         .sort(([a],[b]) => a < b ? -1 : 1);
-    const lastEntry  = trainRecs[trainRecs.length - 1];
-    const lastType   = lastEntry?.[1]?.dayType;
-    const lastDate   = lastEntry?.[0];
-    const nextType   = lastType
-        ? dayOrder[(dayOrder.indexOf(lastType) + 1) % dayOrder.length]
-        : 'Day1';
-    const splitStr = dayOrder.map(d => {
-        let line = `- ${d}: ${dayNames[d]}`;
-        if (d === lastType && lastDate) line += `（前回${lastDate}実施済み）`;
-        if (d === nextType) line += ` ← 次のセッション`;
-        return line;
-    }).join('\n');
-    const lastTrainStr = lastEntry
-        ? `【前回セッション結果 (${lastDate} ${lastType})】\n- ${lastEntry[1].training || '記録なし'}`
-        : '【前回セッション結果】\nまだ記録なし（初回セッションです）';
-    return `【トレーニング分割プラン】\n${splitStr}\n\n${lastTrainStr}`;
+    const lastEntry = trainRecs[trainRecs.length - 1];
+    const lastType  = lastEntry?.[1]?.dayType;
+    const lastDate  = lastEntry?.[0];
+    const nextType  = lastType ? dayOrder[(dayOrder.indexOf(lastType) + 1) % dayOrder.length] : 'Day1';
+    const split = dayOrder.map(d => `${d}:${dayNames[d]}${d===lastType&&lastDate?`(前回${lastDate})`:''}${d===nextType?' ←次':''}` ).join(' / ');
+    const lastLog = lastEntry ? `前回(${lastDate} ${lastType}): ${lastEntry[1].training||'記録なし'}` : '前回: なし';
+    return `[分割] ${split}\n[${lastLog}]`;
 })()}
 
-【本日 (${DB.todayStr()})の記録】
-- 体重: ${rec.weight ? rec.weight + 'kg' : '未記録'}
-- 睡眠: ${rec.sleep ? rec.sleep + '時間' : '未記録'}
-- 食事: 朝${rec.morning ? '済' : '未'} 昼${rec.lunch ? '済' : '未'} 夜${rec.night ? '済' : '未'}
-- トレーニング: ${rec.training || '未記録'}
+[今日 ${DB.todayStr()}] 体重:${rec.weight||'?'}kg 睡眠:${rec.sleep||'?'}h 食事:朝${rec.morning?'○':'×'}昼${rec.lunch?'○':'×'}夜${rec.night?'○':'×'} 体重推移:${weekStr}
+[直近ログ] ${(() => { const s=d.dailySummaries||{}; const r=Object.keys(s).sort().slice(-3); return r.length?r.map(dt=>`${dt.slice(5)}:${s[dt]}`).join(' / '):'なし'; })()}
 
-【直近7日の体重推移】${weekStr}
+[出力ルール — 厳守]
+メニュー提示時: 会話文に種目リスト・表を書かない。末尾に必ず↓
+<!--MENU:[{"name":"種目名","sets":"4","reps":"8","weight":"70kg"},...]-->
 
-【過去の日次ログ（直近7日分）】
-${(() => {
-    const summaries = d.dailySummaries || {};
-    const recent = Object.keys(summaries).sort().slice(-7);
-    return recent.length
-        ? recent.map(dt => `${dt}: ${summaries[dt]}`).join('\n')
-        : 'まだ日次ログなし';
-})()}
-
-【指示スタイル】
-- マシン写真が届いたら機種を判定し重量・フォームを指示する
-- 終わり時間を決めずマイロードが「まだ行く」と言えば追加メニューを出す
-- 甘い声かけは不要。数字と根拠で話す
-- 回答は簡潔に。日本語で。
-
-【メニュー生成ルール — 厳守】
-トレーニングメニューを提示するときのルール：
-1. 会話文にメニューの表・箇条書き・マークダウンテーブルを一切書かないこと
-2. 返答の末尾に必ず以下のJSONブロックをそのまま貼ること（改変・省略禁止）：
-<!--MENU:[{"name":"種目名","sets":"3","reps":"10","weight":"60kg"},{"name":"種目名2","sets":"3","reps":"12","weight":"30kg"}]-->
-3. アプリがこのブロックを読み取り、自動でカード表示＋開始ボタンを出す
-4. ブロックが不正・欠落だとアプリが動作しないので必ず正確に出力すること
-例（会話文は短く、ブロックは末尾）：
-「Day1の胸メニューです。準備できたら開始ボタンを押してください。
-<!--MENU:[{"name":"バーベルベンチプレス","sets":"4","reps":"8","weight":"70kg"},{"name":"ケーブルフライ","sets":"3","reps":"12","weight":"30kg"}]-->」
-
-【セット指示ルール】
-ユーザーが「1セット目から始めてください」または「セットN完了: ...」を送ってきたとき：
-- 簡潔なコメント（1〜2文）のあと、返答の末尾に必ず以下のJSONブロックを追記すること：
+セット指示時(開始/完了報告受信): 1〜2文コメント後、末尾に必ず↓
 <!--SET:{"exercise":"種目名","set":1,"total":3,"weight":"30","unit":"kg","reps":"12"}-->
-- weightは数字のみ（単位はunitフィールドに）。repsも数字のみ。
-- 前のセットの報告結果を踏まえて重量・回数を調整してよい（プログレッシブオーバーロード）
-- アプリがセットカードを自動表示するので、会話文に「○kg×○回」の数値を書かなくてよい
-- 全種目の全セット終了後はRECORDブロックでdayTypeとtrainingを記録すること
+(weight/repsは数字のみ。前セット結果で重量調整可。全完了後はRECORDで記録)
 
-【自動記録ルール】
-ユーザーが体重・食事・睡眠・トレーニング内容を報告したとき、返答の末尾に必ず以下のJSONブロックを追記すること：
+記録報告時: 末尾に必ず↓
 <!--RECORD:{"weight":null,"sleep":null,"morning":null,"lunch":null,"night":null,"training":"","dayType":""}-->
-報告された値だけ入れ、言及がないものはnullのまま。
-例: 「体重95.2kgでした」→ {"weight":95.2,...他null}
-例: 「朝食と昼食食べた」→ {"morning":true,"lunch":true,...}
-例: 「Day2終わりました、ラットプルダウン60kg×10×3セット」→ {"training":"ラットプルダウン60kg×10×3","dayType":"Day2",...}
-このブロックはアプリが自動で読み取るので、会話文には含めないこと。`;
+(報告値のみ入れる。null以外を省略しない)`;
 
-    // Build messages: today's chat only (last 20 messages)
-    const todayMsgs = (d.chatHistory[chatViewDate] || []).slice(-20)
+    // Build messages: today's chat only (last 8 messages)
+    const todayMsgs = (d.chatHistory[chatViewDate] || []).slice(-8)
         .filter(h => h.content)
         .map(h => ({
             role: h.role === 'user' ? 'user' : 'assistant',
