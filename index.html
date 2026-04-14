@@ -700,50 +700,46 @@
             #btn-logout { display: none !important; }
             #card-logout-mobile { display: block !important; }
 
-            /* ── レイアウト ── */
-            .layout { display: block; }
+            /* ── body / layout ── */
+            html, body { height: 100%; overflow: hidden; }
+            .layout { display: block; height: 100%; }
 
-            /* ── メインエリア：画面全体をカバー ── */
+            /* ── メインエリア：JS が --real-vh をセットする ── */
             .main {
-                position: fixed;
-                top: 0; left: 0; right: 0;
-                bottom: calc(56px + env(safe-area-inset-bottom));
+                display: block;
+                height: calc(var(--real-vh, 100dvh) - 56px - env(safe-area-inset-bottom));
                 overflow: hidden;
+                position: relative;   /* fixed はやめる */
             }
 
-            /* ── 全ビュー：絶対配置で重ねる ── */
+            /* ── 全ビュー ── */
             .view {
                 display: none !important;
-                position: absolute;
-                inset: 0;
+                height: 100%;
                 overflow-y: auto;
                 -webkit-overflow-scrolling: touch;
                 padding: 16px;
+                box-sizing: border-box;
             }
-            .view.active {
-                display: block !important;
-            }
+            .view.active { display: block !important; }
 
-            /* ── チャットビュー：縦flex ── */
+            /* ── チャットビュー ── */
             #view-trainer.active {
                 display: flex !important;
                 flex-direction: column;
                 padding: 0;
                 overflow: hidden;
+                /* 入力欄の高さ分だけ下余白 */
+                padding-bottom: 68px;
             }
             .trainer-view-wrap {
-                flex: 1;
-                min-height: 0;
-                display: flex;
-                flex-direction: column;
+                flex: 1; min-height: 0;
+                display: flex; flex-direction: column;
             }
             .trainer-chat-card {
-                flex: 1;
-                min-height: 0;
+                flex: 1; min-height: 0;
                 border-radius: 0;
-                border-left: none;
-                border-right: none;
-                border-top: none;
+                border-left: none; border-right: none; border-top: none;
                 padding: 0;
                 display: flex !important;
                 flex-direction: column;
@@ -754,40 +750,41 @@
                 flex-shrink: 0;
             }
             .chat-messages {
-                flex: 1;
-                min-height: 0;
+                flex: 1; min-height: 0;
                 padding: 8px 12px;
                 overflow-y: auto;
                 -webkit-overflow-scrolling: touch;
             }
-            .typing-indicator { padding: 2px 12px; font-size: 12px; flex-shrink: 0; }
-            #auto-save-notice { padding: 0 12px; flex-shrink: 0; }
+            .typing-indicator  { padding: 2px 12px; font-size: 12px; flex-shrink: 0; }
+            #auto-save-notice  { padding: 0 12px; flex-shrink: 0; }
             #image-preview-row { padding: 4px 12px !important; flex-shrink: 0; }
+
+            /* ── 入力欄：完全に fixed で独立、JS が bottom を調整 ── */
             .chat-input-row {
-                padding: 10px 12px;
+                position: fixed !important;
+                left: 0; right: 0;
+                bottom: var(--input-bottom, calc(56px + env(safe-area-inset-bottom)));
+                z-index: 400;
+                padding: 8px 12px;
                 background: var(--bg-card);
                 border-top: 1px solid var(--border);
                 gap: 8px;
-                flex-shrink: 0;
                 align-items: flex-end;
+                display: flex;
             }
             .chat-input-row textarea {
                 font-size: 16px;
-                height: 44px;
-                min-height: 44px;
-                max-height: 120px;
-                padding: 11px 12px;
+                height: 44px; min-height: 44px; max-height: 120px;
+                padding: 10px 12px;
                 border-radius: 22px;
                 line-height: 1.4;
                 resize: none;
             }
             #chat-send {
-                min-height: 44px;
-                min-width: 64px;
+                min-height: 44px; min-width: 60px;
                 padding: 0 16px;
                 border-radius: 22px;
-                font-size: 15px;
-                font-weight: 700;
+                font-size: 15px; font-weight: 700;
                 flex-shrink: 0;
             }
 
@@ -795,7 +792,7 @@
             .msg-bubble { font-size: 14px; padding: 10px 14px; }
             .msg-inner  { max-width: 88%; }
 
-            /* ── その他ビュー共通 ── */
+            /* ── その他ビュー ── */
             .stats-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
             .zukan-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
             .zukan-illust { height: 90px; }
@@ -4012,30 +4009,35 @@ if (!DB.get().apiKey) {
     document.getElementById('api-alert').style.display = 'block';
 }
 
-// ===== キーボード対応 (iOS Safari visualViewport) =====
+// ===== キーボード対応 (iOS Safari) =====
 (function() {
-    if (window.innerWidth > 768) return; // スマホのみ
-    const mainEl = document.querySelector('.main');
-    const navEl  = document.getElementById('mobile-nav');
-    if (!mainEl || !navEl || !window.visualViewport) return;
+    if (window.innerWidth > 768) return;
+    const root = document.documentElement;
 
-    function adjust() {
-        const vv   = window.visualViewport;
-        const navH = navEl.offsetHeight || 56;
+    function update() {
+        const vv = window.visualViewport || { height: window.innerHeight, offsetTop: 0 };
+        const navH = document.getElementById('mobile-nav')?.offsetHeight || 56;
+        const safeB = parseFloat(getComputedStyle(root).getPropertyValue('--sai') || '0') || 0;
 
-        // ナビバー：ビューポートの一番下に貼り付ける
-        navEl.style.top    = (vv.offsetTop + vv.height - navH) + 'px';
-        navEl.style.bottom = 'auto';
+        // メインエリア高さ
+        const mainH = vv.height - navH - safeB;
+        root.style.setProperty('--real-vh', vv.height + 'px');
 
-        // メインエリア：ビューポート上部〜ナビバー上端
-        mainEl.style.top    = vv.offsetTop + 'px';
-        mainEl.style.height = (vv.height - navH) + 'px';
-        mainEl.style.bottom = 'auto';
+        // 入力欄のbottom：キーボード分だけ上に移動
+        const keyboardH = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+        const inputBottom = keyboardH + navH + safeB;
+        root.style.setProperty('--input-bottom', inputBottom + 'px');
     }
 
-    window.visualViewport.addEventListener('resize', adjust);
-    window.visualViewport.addEventListener('scroll', adjust);
-    adjust(); // 初期実行
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', update);
+        window.visualViewport.addEventListener('scroll', update);
+    }
+    window.addEventListener('resize', update);
+
+    // 認証後も動くように少し遅らせて初期実行
+    setTimeout(update, 100);
+    setTimeout(update, 500);
 })();
 </script>
 
