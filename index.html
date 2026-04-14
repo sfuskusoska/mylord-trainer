@@ -697,7 +697,8 @@
             /* ── ボトムナビ・サイドバー ── */
             #mobile-nav { display: flex !important; }
             .sidebar    { display: none !important; }
-            #btn-logout { top: 6px; right: 8px; font-size: 10px; padding: 3px 8px; }
+            #btn-logout { display: none !important; }
+            #card-logout-mobile { display: block !important; }
 
             /* ── レイアウト ── */
             .layout { display: block; }
@@ -1330,7 +1331,7 @@
                         <button class="btn btn-secondary cal-nav" id="chat-date-prev">&#8249;</button>
                         <span id="chat-date-label"></span>
                         <button class="btn btn-secondary cal-nav" id="chat-date-next">&#8250;</button>
-                        <button class="btn btn-secondary" id="btn-gen-summary" style="font-size:12px; padding:4px 10px;">まとめを生成</button>
+                        <button class="btn btn-secondary" id="btn-gen-summary" style="font-size:11px; padding:4px 8px; margin-left:auto;">📋まとめ</button>
                     </div>
                     <div class="chat-messages" id="chat-messages"></div>
                     <div class="typing-indicator" id="typing"></div>
@@ -1591,6 +1592,14 @@
                     <button class="btn btn-secondary" id="btn-export">データをエクスポート (JSON)</button>
                     <button class="btn btn-secondary" id="btn-clear-chat">チャット履歴をクリア</button>
                 </div>
+            </div>
+
+            <!-- ログアウト（モバイル用） -->
+            <div class="card" id="card-logout-mobile" style="display:none;">
+                <button class="btn btn-secondary btn-block" id="btn-logout-settings"
+                    style="color: var(--danger); border-color: var(--danger);">
+                    ログアウト（パスワード画面に戻る）
+                </button>
             </div>
 
         </div>
@@ -4076,10 +4085,15 @@ if (!DB.get().apiKey) {
 
     submitBtn.addEventListener('click', tryLogin);
     input.addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
-    logoutBtn.addEventListener('click', () => {
+    function doLogout() {
         localStorage.removeItem(STORE_KEY);
         showLock();
-    });
+    }
+    logoutBtn.addEventListener('click', doLogout);
+
+    // 設定タブ内のログアウトボタン（モバイル用）
+    const logoutSettingsBtn = document.getElementById('btn-logout-settings');
+    if (logoutSettingsBtn) logoutSettingsBtn.addEventListener('click', doLogout);
 
     // 初期チェック
     if (localStorage.getItem(STORE_KEY) === '1') {
