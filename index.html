@@ -2481,7 +2481,7 @@ ${(() => {
         { role: 'user', content: userContent }
     ];
 
-    const model = imageB64 ? 'meta-llama/llama-4-maverick-17b-128e-instruct' : 'llama-3.3-70b-versatile';
+    const model = imageB64 ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'openai/gpt-oss-120b';
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
