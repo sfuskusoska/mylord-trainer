@@ -4003,24 +4003,30 @@ if (!DB.get().apiKey) {
     document.getElementById('api-alert').style.display = 'block';
 }
 
-// ===== キーボード対応 (iOS Safari) =====
+// ===== キーボード対応 (iOS Safari visualViewport) =====
 (function() {
+    if (window.innerWidth > 768) return; // スマホのみ
     const mainEl = document.querySelector('.main');
-    if (!mainEl || !window.visualViewport) return;
+    const navEl  = document.getElementById('mobile-nav');
+    if (!mainEl || !navEl || !window.visualViewport) return;
 
-    function adjustForKeyboard() {
-        const vv = window.visualViewport;
-        const navH = 56 + (parseInt(getComputedStyle(document.documentElement)
-            .getPropertyValue('--sai-bottom') || '0'));
-        // キーボードが出ているとき: visualViewport.height < window.innerHeight
-        const keyboardH = window.innerHeight - vv.height - vv.offsetTop;
-        const availH = vv.height - navH;
-        mainEl.style.height = Math.max(availH, 200) + 'px';
-        mainEl.style.top = vv.offsetTop + 'px';
+    function adjust() {
+        const vv   = window.visualViewport;
+        const navH = navEl.offsetHeight || 56;
+
+        // ナビバー：ビューポートの一番下に貼り付ける
+        navEl.style.top    = (vv.offsetTop + vv.height - navH) + 'px';
+        navEl.style.bottom = 'auto';
+
+        // メインエリア：ビューポート上部〜ナビバー上端
+        mainEl.style.top    = vv.offsetTop + 'px';
+        mainEl.style.height = (vv.height - navH) + 'px';
+        mainEl.style.bottom = 'auto';
     }
 
-    window.visualViewport.addEventListener('resize', adjustForKeyboard);
-    window.visualViewport.addEventListener('scroll', adjustForKeyboard);
+    window.visualViewport.addEventListener('resize', adjust);
+    window.visualViewport.addEventListener('scroll', adjust);
+    adjust(); // 初期実行
 })();
 </script>
 
