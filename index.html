@@ -700,19 +700,18 @@
             #btn-logout { display: none !important; }
             #card-logout-mobile { display: block !important; }
 
-            /* ── body / layout (LINE方式: 完全flex, position:fixed は入力欄に使わない) ── */
+            /* ── body / layout ── */
+            /* interactive-widget=resizes-content により
+               キーボード表示時に dvh が自動で縮む。JS補正は不要。 */
             html, body {
                 height: 100%;
                 overflow: hidden;
-                position: fixed;
-                width: 100%;
-                left: 0; top: 0;
                 overscroll-behavior: none;
             }
             .layout {
                 display: flex;
                 flex-direction: column;
-                height: var(--real-vh, 100dvh);
+                height: 100dvh;   /* キーボード表示時に自動で縮む */
                 overflow: hidden;
             }
 
@@ -721,9 +720,8 @@
                 flex: 1;
                 min-height: 0;
                 overflow: hidden;
-                position: relative;
-                /* mobile-nav は fixed なので、キーボード非表示時だけ下余白を取る */
-                padding-bottom: var(--nav-space, calc(56px + env(safe-area-inset-bottom)));
+                /* fixed nav (56px + safe-area) 分だけ下余白 */
+                padding-bottom: calc(56px + env(safe-area-inset-bottom));
                 box-sizing: border-box;
             }
 
@@ -774,7 +772,7 @@
             #auto-save-notice  { padding: 0 12px; flex-shrink: 0; }
             #image-preview-row { padding: 4px 12px !important; flex-shrink: 0; }
 
-            /* ── 入力欄：flexの最下段に静的配置 (fixedにしない) ── */
+            /* ── 入力欄：flex の最下段に静的配置（fixed にしない） ── */
             .chat-input-row {
                 position: static !important;
                 flex-shrink: 0;
@@ -4022,41 +4020,18 @@ if (!DB.get().apiKey) {
     document.getElementById('api-alert').style.display = 'block';
 }
 
-// ===== キーボード対応 (iOS Safari / LINE方式) =====
+// ===== チャット入力フォーカス時に最下部へスクロール (iOS Safari 対策) =====
 (function() {
     if (window.innerWidth > 768) return;
-    const root = document.documentElement;
-
-    function update() {
-        const vv = window.visualViewport || { height: window.innerHeight, offsetTop: 0 };
-        const nav = document.getElementById('mobile-nav');
-
-        // レイアウト全体の高さをvisualViewportに合わせる（キーボード表示時は縮む）
-        root.style.setProperty('--real-vh', vv.height + 'px');
-
-        // キーボード判定：visual viewport が layout viewport より明らかに小さい
-        const keyboardVisible = (window.innerHeight - vv.height) > 150;
-
-        if (keyboardVisible) {
-            // キーボード表示中はボトムナビを隠す → 入力欄がそのまま最下段に来る
-            if (nav) nav.style.display = 'none';
-            root.style.setProperty('--nav-space', '0px');
-        } else {
-            if (nav) nav.style.display = '';
-            root.style.setProperty('--nav-space', 'calc(56px + env(safe-area-inset-bottom))');
-        }
-    }
-
-    if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', update);
-        window.visualViewport.addEventListener('scroll', update);
-    }
-    window.addEventListener('resize', update);
-    window.addEventListener('orientationchange', update);
-
-    // 認証後も動くように少し遅らせて初期実行
-    setTimeout(update, 100);
-    setTimeout(update, 500);
+    const input = document.getElementById('chat-input');
+    const msgs  = document.getElementById('chat-messages');
+    if (!input || !msgs) return;
+    input.addEventListener('focus', function() {
+        // キーボード表示アニメーション完了後に最下部へ
+        setTimeout(function() {
+            msgs.scrollTop = msgs.scrollHeight;
+        }, 350);
+    });
 })();
 </script>
 
