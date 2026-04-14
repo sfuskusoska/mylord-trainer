@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
@@ -763,18 +763,32 @@
             #auto-save-notice { padding: 0 12px; flex-shrink: 0; }
             #image-preview-row { padding: 4px 12px !important; flex-shrink: 0; }
             .chat-input-row {
-                padding: 8px 10px;
+                padding: 10px 12px;
                 background: var(--bg-card);
                 border-top: 1px solid var(--border);
-                gap: 6px;
+                gap: 8px;
                 flex-shrink: 0;
+                align-items: flex-end;
             }
             .chat-input-row textarea {
                 font-size: 16px;
-                height: 40px;
-                min-height: 40px;
+                height: 44px;
+                min-height: 44px;
+                max-height: 120px;
+                padding: 11px 12px;
+                border-radius: 22px;
+                line-height: 1.4;
+                resize: none;
             }
-            #chat-send { min-height: 40px; padding: 0 14px; }
+            #chat-send {
+                min-height: 44px;
+                min-width: 64px;
+                padding: 0 16px;
+                border-radius: 22px;
+                font-size: 15px;
+                font-weight: 700;
+                flex-shrink: 0;
+            }
 
             /* ── メッセージバブル ── */
             .msg-bubble { font-size: 14px; padding: 10px 14px; }
@@ -3988,6 +4002,26 @@ switchView('trainer');
 if (!DB.get().apiKey) {
     document.getElementById('api-alert').style.display = 'block';
 }
+
+// ===== キーボード対応 (iOS Safari) =====
+(function() {
+    const mainEl = document.querySelector('.main');
+    if (!mainEl || !window.visualViewport) return;
+
+    function adjustForKeyboard() {
+        const vv = window.visualViewport;
+        const navH = 56 + (parseInt(getComputedStyle(document.documentElement)
+            .getPropertyValue('--sai-bottom') || '0'));
+        // キーボードが出ているとき: visualViewport.height < window.innerHeight
+        const keyboardH = window.innerHeight - vv.height - vv.offsetTop;
+        const availH = vv.height - navH;
+        mainEl.style.height = Math.max(availH, 200) + 'px';
+        mainEl.style.top = vv.offsetTop + 'px';
+    }
+
+    window.visualViewport.addEventListener('resize', adjustForKeyboard);
+    window.visualViewport.addEventListener('scroll', adjustForKeyboard);
+})();
 </script>
 
 </div><!-- /#main-content -->
