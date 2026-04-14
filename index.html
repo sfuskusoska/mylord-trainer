@@ -786,11 +786,13 @@
             }
             .chat-input-row textarea {
                 font-size: 16px;
-                height: 44px; min-height: 44px; max-height: 120px;
+                min-height: 44px; max-height: 120px;
                 padding: 10px 12px;
                 border-radius: 22px;
-                line-height: 1.4;
+                line-height: 1.5;
                 resize: none;
+                overflow-y: auto;
+                box-sizing: border-box;
             }
             #chat-send {
                 min-height: 44px; min-width: 60px;
@@ -1297,6 +1299,10 @@
     <div id="pw-box">
         <div class="pw-logo">MyLord</div>
         <div class="pw-sub">Personal Trainer</div>
+        <button id="btn-faceid" style="display:none; width:100%; padding:14px; margin-bottom:12px; background:var(--accent,#4A90D9); color:#fff; border:none; border-radius:12px; font-size:17px; font-weight:700; cursor:pointer; letter-spacing:0.02em;">
+            🔒 Face ID でログイン
+        </button>
+        <div id="pw-divider" style="display:none; text-align:center; color:#aaa; font-size:13px; margin-bottom:12px;">またはパスワードで</div>
         <input id="pw-input" type="password" placeholder="パスワードを入力" autocomplete="current-password">
         <button id="pw-submit">入力</button>
         <div id="pw-error"></div>
@@ -4047,16 +4053,22 @@ if (!DB.get().apiKey) {
 <!-- ===== PASSWORD AUTH SCRIPT ===== -->
 <script>
 (function() {
-    const PW        = '88888888';             // ← パスワードをここで変更
-    const STORE_KEY = 'mylord_auth';
+    const PW         = '88888888';
+    const STORE_KEY  = 'mylord_auth';
+    const CRED_KEY   = 'mylord_webauthn_id';
+    const RP_NAME    = 'MyLord';
 
-    const screen    = document.getElementById('pw-screen');
-    const box       = document.getElementById('pw-box');
-    const input     = document.getElementById('pw-input');
-    const submitBtn = document.getElementById('pw-submit');
-    const errorDiv  = document.getElementById('pw-error');
+    const screen      = document.getElementById('pw-screen');
+    const box         = document.getElementById('pw-box');
+    const input       = document.getElementById('pw-input');
+    const submitBtn   = document.getElementById('pw-submit');
+    const errorDiv    = document.getElementById('pw-error');
     const mainContent = document.getElementById('main-content');
-    const logoutBtn = document.getElementById('btn-logout');
+    const logoutBtn   = document.getElementById('btn-logout');
+    const faceBtn     = document.getElementById('btn-faceid');
+    const divider     = document.getElementById('pw-divider');
+
+    const canWebAuthn = () => window.PublicKeyCredential !== undefined;
 
     function showApp() {
         screen.classList.remove('active');
@@ -4070,17 +4082,84 @@ if (!DB.get().apiKey) {
         screen.classList.add('active');
         input.value = '';
         errorDiv.textContent = '';
-        setTimeout(() => input.focus(), 100);
+        // Face ID ボタンを表示するか判定
+        if (canWebAuthn() && localStorage.getItem(CRED_KEY)) {
+            faceBtn.style.display  = 'block';
+            divider.style.display  = 'block';
+        }
+        // Face ID が登録済みなら自動起動
+        if (canWebAuthn() && localStorage.getItem(CRED_KEY)) {
+            tryFaceID();
+        } else {
+            setTimeout(() => input.focus(), 100);
+        }
     }
 
+    // ===== Face ID 登録 =====
+    async function registerFaceID() {
+        try {
+            const challenge = crypto.getRandomValues(new Uint8Array(32));
+            const cred = await navigator.credentials.create({ publicKey: {
+                challenge,
+                rp: { name: RP_NAME, id: location.hostname },
+                user: { id: new TextEncoder().encode('mylord'), name: 'mylord', displayName: 'MyLord' },
+                pubKeyCredParams: [{ alg: -7, type: 'public-key' }],
+                authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
+                timeout: 60000
+            }});
+            const id = btoa(String.fromCharCode(...new Uint8Array(cred.rawId)));
+            localStorage.setItem(CRED_KEY, id);
+            errorDiv.style.color = 'var(--success, #2ecc71)';
+            errorDiv.textContent = 'Face ID を登録しました。次回から使えます。';
+            setTimeout(() => { errorDiv.textContent = ''; errorDiv.style.color = ''; }, 3000);
+        } catch(e) {
+            // キャンセルは無視
+        }
+    }
+
+    // ===== Face ID 認証 =====
+    async function tryFaceID() {
+        const stored = localStorage.getItem(CRED_KEY);
+        if (!stored || !canWebAuthn()) return;
+        try {
+            const credId    = Uint8Array.from(atob(stored), c => c.charCodeAt(0));
+            const challenge = crypto.getRandomValues(new Uint8Array(32));
+            const result = await navigator.credentials.get({ publicKey: {
+                challenge,
+                allowCredentials: [{ id: credId, type: 'public-key' }],
+                userVerification: 'required',
+                timeout: 60000
+            }});
+            if (result) {
+                localStorage.setItem(STORE_KEY, '1');
+                showApp();
+            }
+        } catch(e) {
+            // キャンセルされたら手動入力へ
+            setTimeout(() => input.focus(), 100);
+        }
+    }
+
+    faceBtn.addEventListener('click', tryFaceID);
+
+    // ===== パスワード認証 =====
     function tryLogin() {
         if (input.value === PW) {
             localStorage.setItem(STORE_KEY, '1');
             showApp();
+            // 初回ログイン時に Face ID 登録を提案
+            if (canWebAuthn() && !localStorage.getItem(CRED_KEY)) {
+                setTimeout(() => {
+                    if (confirm('Face ID でのログインを設定しますか？\n（次回から自動でFace ID認証になります）')) {
+                        registerFaceID();
+                    }
+                }, 500);
+            }
         } else {
+            errorDiv.style.color = '';
             errorDiv.textContent = 'パスワードが違います';
             box.classList.remove('shake');
-            void box.offsetWidth; // reflow to restart animation
+            void box.offsetWidth;
             box.classList.add('shake');
             input.select();
         }
@@ -4088,13 +4167,12 @@ if (!DB.get().apiKey) {
 
     submitBtn.addEventListener('click', tryLogin);
     input.addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
+
     function doLogout() {
         localStorage.removeItem(STORE_KEY);
         showLock();
     }
     logoutBtn.addEventListener('click', doLogout);
-
-    // 設定タブ内のログアウトボタン（モバイル用）
     const logoutSettingsBtn = document.getElementById('btn-logout-settings');
     if (logoutSettingsBtn) logoutSettingsBtn.addEventListener('click', doLogout);
 
