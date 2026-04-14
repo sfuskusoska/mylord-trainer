@@ -700,16 +700,31 @@
             #btn-logout { display: none !important; }
             #card-logout-mobile { display: block !important; }
 
-            /* ── body / layout ── */
-            html, body { height: 100%; overflow: hidden; }
-            .layout { display: block; height: 100%; }
-
-            /* ── メインエリア：JS が --real-vh をセットする ── */
-            .main {
-                display: block;
-                height: calc(var(--real-vh, 100dvh) - 56px - env(safe-area-inset-bottom));
+            /* ── body / layout (LINE方式: 完全flex, position:fixed は入力欄に使わない) ── */
+            html, body {
+                height: 100%;
                 overflow: hidden;
-                position: relative;   /* fixed はやめる */
+                position: fixed;
+                width: 100%;
+                left: 0; top: 0;
+                overscroll-behavior: none;
+            }
+            .layout {
+                display: flex;
+                flex-direction: column;
+                height: var(--real-vh, 100dvh);
+                overflow: hidden;
+            }
+
+            /* ── メインエリア ── */
+            .main {
+                flex: 1;
+                min-height: 0;
+                overflow: hidden;
+                position: relative;
+                /* mobile-nav は fixed なので、キーボード非表示時だけ下余白を取る */
+                padding-bottom: var(--nav-space, calc(56px + env(safe-area-inset-bottom)));
+                box-sizing: border-box;
             }
 
             /* ── 全ビュー ── */
@@ -729,8 +744,7 @@
                 flex-direction: column;
                 padding: 0;
                 overflow: hidden;
-                /* 入力欄の高さ分だけ下余白 */
-                padding-bottom: 68px;
+                height: 100%;
             }
             .trainer-view-wrap {
                 flex: 1; min-height: 0;
@@ -754,17 +768,16 @@
                 padding: 8px 12px;
                 overflow-y: auto;
                 -webkit-overflow-scrolling: touch;
+                overscroll-behavior: contain;
             }
             .typing-indicator  { padding: 2px 12px; font-size: 12px; flex-shrink: 0; }
             #auto-save-notice  { padding: 0 12px; flex-shrink: 0; }
             #image-preview-row { padding: 4px 12px !important; flex-shrink: 0; }
 
-            /* ── 入力欄：完全に fixed で独立、JS が bottom を調整 ── */
+            /* ── 入力欄：flexの最下段に静的配置 (fixedにしない) ── */
             .chat-input-row {
-                position: fixed !important;
-                left: 0; right: 0;
-                bottom: var(--input-bottom, calc(56px + env(safe-area-inset-bottom)));
-                z-index: 400;
+                position: static !important;
+                flex-shrink: 0;
                 padding: 8px 12px;
                 background: var(--bg-card);
                 border-top: 1px solid var(--border);
@@ -4009,24 +4022,29 @@ if (!DB.get().apiKey) {
     document.getElementById('api-alert').style.display = 'block';
 }
 
-// ===== キーボード対応 (iOS Safari) =====
+// ===== キーボード対応 (iOS Safari / LINE方式) =====
 (function() {
     if (window.innerWidth > 768) return;
     const root = document.documentElement;
 
     function update() {
         const vv = window.visualViewport || { height: window.innerHeight, offsetTop: 0 };
-        const navH = document.getElementById('mobile-nav')?.offsetHeight || 56;
-        const safeB = parseFloat(getComputedStyle(root).getPropertyValue('--sai') || '0') || 0;
+        const nav = document.getElementById('mobile-nav');
 
-        // メインエリア高さ
-        const mainH = vv.height - navH - safeB;
+        // レイアウト全体の高さをvisualViewportに合わせる（キーボード表示時は縮む）
         root.style.setProperty('--real-vh', vv.height + 'px');
 
-        // 入力欄のbottom：キーボード分だけ上に移動
-        const keyboardH = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-        const inputBottom = keyboardH + navH + safeB;
-        root.style.setProperty('--input-bottom', inputBottom + 'px');
+        // キーボード判定：visual viewport が layout viewport より明らかに小さい
+        const keyboardVisible = (window.innerHeight - vv.height) > 150;
+
+        if (keyboardVisible) {
+            // キーボード表示中はボトムナビを隠す → 入力欄がそのまま最下段に来る
+            if (nav) nav.style.display = 'none';
+            root.style.setProperty('--nav-space', '0px');
+        } else {
+            if (nav) nav.style.display = '';
+            root.style.setProperty('--nav-space', 'calc(56px + env(safe-area-inset-bottom))');
+        }
     }
 
     if (window.visualViewport) {
@@ -4034,6 +4052,7 @@ if (!DB.get().apiKey) {
         window.visualViewport.addEventListener('scroll', update);
     }
     window.addEventListener('resize', update);
+    window.addEventListener('orientationchange', update);
 
     // 認証後も動くように少し遅らせて初期実行
     setTimeout(update, 100);
