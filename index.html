@@ -1255,6 +1255,133 @@
             transition: width 0.3s;
         }
 
+        /* ===== SET CARD ===== */
+        .set-card {
+            background: var(--bg-card);
+            border: 2px solid var(--accent, #58a6ff);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin: 6px 0;
+            max-width: 340px;
+        }
+        .set-card-header {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--accent, #58a6ff);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 6px;
+        }
+        .set-card-name {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 12px;
+        }
+        .set-card-inputs {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .set-card-input-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 3px;
+        }
+        .set-card-input-group label {
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+        .set-card-input-group input {
+            width: 64px;
+            font-size: 20px;
+            font-weight: 700;
+            text-align: center;
+            padding: 6px 4px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Consolas', monospace;
+        }
+        .set-card-sep {
+            font-size: 18px;
+            color: var(--text-muted);
+            padding-top: 18px;
+        }
+        .set-card-done {
+            width: 100%;
+            padding: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            background: var(--accent, #58a6ff);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .set-card-done:active { opacity: 0.8; }
+        .set-card.completed {
+            border-color: var(--success, #2ecc71);
+            opacity: 0.7;
+        }
+        .set-card.completed .set-card-done { display: none; }
+        .set-card-result {
+            font-size: 12px;
+            color: var(--success, #2ecc71);
+            font-weight: 600;
+            display: none;
+        }
+        .set-card.completed .set-card-result { display: block; }
+
+        /* ===== MENU OVERVIEW ===== */
+        .menu-overview {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin: 6px 0;
+            max-width: 340px;
+        }
+        .menu-overview-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 10px;
+        }
+        .menu-overview-item {
+            font-size: 13px;
+            color: var(--text);
+            padding: 4px 0;
+            border-bottom: 1px solid var(--border-muted, rgba(255,255,255,0.06));
+        }
+        .menu-overview-item:last-of-type { border-bottom: none; }
+        .menu-overview-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: 'Consolas', monospace;
+        }
+        .menu-start-btn {
+            width: 100%;
+            margin-top: 12px;
+            padding: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            background: var(--success, #2ecc71);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .menu-start-btn:disabled {
+            background: var(--text-muted);
+            cursor: default;
+        }
+
         /* ===== DAILY SUMMARY ===== */
         .summary-item {
             border-bottom: 1px solid var(--border-muted);
@@ -2186,7 +2313,7 @@ async function sendMessage() {
     try {
         let reply = await callGroq(apiKey, imageB64, imageMime);
 
-        // Parse MENU block → render checklist
+        // Parse MENU block → render menu overview
         const menuMatch = reply.match(/<!--MENU:(\[.*?\])-->/s);
         if (menuMatch) {
             try {
@@ -2196,11 +2323,26 @@ async function sendMessage() {
                     appendBubble(reply, 'trainer');
                     DB.addChat('assistant', reply, chatViewDate);
                     appendChecklist(items);
-                    // Skip the duplicate appendBubble below
                     return;
                 }
             } catch {}
             reply = reply.replace(/<!--MENU:.*?-->/s, '').trim();
+        }
+
+        // Parse SET block → render editable set card
+        const setMatch = reply.match(/<!--SET:(\{.*?\})-->/s);
+        if (setMatch) {
+            try {
+                const setData = JSON.parse(setMatch[1]);
+                reply = reply.replace(/<!--SET:.*?-->/s, '').trim();
+                if (reply) {
+                    appendBubble(reply, 'trainer');
+                    DB.addChat('assistant', reply, chatViewDate);
+                }
+                appendSetCard(setData);
+                return;
+            } catch {}
+            reply = reply.replace(/<!--SET:.*?-->/s, '').trim();
         }
 
         // Auto-fill records from RECORD block
@@ -2339,18 +2481,24 @@ ${(() => {
 })()}
 
 【指示スタイル】
-- セットごとに「次のセット: ○kg × ○回」と具体的に指示する
 - マシン写真が届いたら機種を判定し重量・フォームを指示する
-- 「完了」「終わりました」の報告には次のセットか次の種目を即返す
 - 終わり時間を決めずマイロードが「まだ行く」と言えば追加メニューを出す
 - 甘い声かけは不要。数字と根拠で話す
 - 回答は簡潔に。日本語で。
 
 【メニュー生成ルール】
 トレーニングメニューを提示するときは、返答の末尾に必ず以下のJSON形式を追記すること：
-<!--MENU:[{"name":"種目名","sets":"3","reps":"10","weight":"60kg"},...]-->
-例: <!--MENU:[{"name":"ラットプルダウン","sets":"3","reps":"10","weight":"60kg"},{"name":"シーテッドロウ","sets":"3","reps":"10","weight":"60kg"}]-->
-このブロックはアプリがチェックリストとして自動表示する。会話文には含めないこと。
+<!--MENU:[{"name":"種目名","sets":"3","reps":"10","weight":"60"},...]-->
+weightは数字のみ（単位なし）。アプリが概要カードとして表示し「開始」ボタンを提示する。会話文には含めないこと。
+
+【セット指示ルール】
+ユーザーが「1セット目から始めてください」または「セットN完了: ...」を送ってきたとき：
+- 簡潔なコメント（1〜2文）のあと、返答の末尾に必ず以下のJSONブロックを追記すること：
+<!--SET:{"exercise":"種目名","set":1,"total":3,"weight":"30","unit":"kg","reps":"12"}-->
+- weightは数字のみ（単位はunitフィールドに）。repsも数字のみ。
+- 前のセットの報告結果を踏まえて重量・回数を調整してよい（プログレッシブオーバーロード）
+- アプリがセットカードを自動表示するので、会話文に「○kg×○回」の数値を書かなくてよい
+- 全種目の全セット終了後はRECORDブロックでdayTypeとtrainingを記録すること
 
 【自動記録ルール】
 ユーザーが体重・食事・睡眠・トレーニング内容を報告したとき、返答の末尾に必ず以下のJSONブロックを追記すること：
@@ -2703,149 +2851,130 @@ function updateHeaderDate() {
     el.textContent = new Date().toLocaleDateString('ja-JP', opts);
 }
 
-// ===== CHECKLIST =====
-// _activeChecklist.sets = flat array of {exerciseName, setNum, reps, weight, done, cbEl, rowEl}
-let _activeChecklist = null;
+// ===== MENU OVERVIEW =====
+// Show proposed menu as a summary card with a Start button.
+// Actual set execution is driven by SET blocks from the AI.
 
 function appendChecklist(exercises) {
-    const id = 'cl-' + Date.now();
-
-    // Expand exercises → flat set list
-    const sets = [];
-    exercises.forEach(ex => {
-        const count = parseInt(ex.sets) || 1;
-        for (let s = 1; s <= count; s++) {
-            sets.push({ exerciseName: ex.name, setNum: s, reps: ex.reps, weight: ex.weight, done: false, cbEl: null, rowEl: null });
-        }
-    });
-    _activeChecklist = { sets, elId: id };
-
     const card = document.createElement('div');
-    card.className = 'checklist-card';
-    card.id = id;
+    card.className = 'menu-overview';
 
-    const titleEl = document.createElement('div');
-    titleEl.className = 'checklist-title';
-    titleEl.textContent = '今日のメニュー';
-    card.appendChild(titleEl);
+    const title = document.createElement('div');
+    title.className = 'menu-overview-title';
+    title.textContent = '今日のメニュー（予定）';
+    card.appendChild(title);
 
-    // Group by exercise
     exercises.forEach(ex => {
-        const exSets = sets.filter(s => s.exerciseName === ex.name);
-
-        // Exercise header with editable weight
-        const header = document.createElement('div');
-        header.className = 'checklist-ex-header';
-        const nameSpan = document.createElement('span');
-        nameSpan.className = 'checklist-ex-name';
-        nameSpan.textContent = ex.name;
-        header.appendChild(nameSpan);
-
-        const metaWrap = document.createElement('span');
-        metaWrap.className = 'checklist-ex-meta';
-        metaWrap.style.display = 'flex';
-        metaWrap.style.alignItems = 'center';
-        metaWrap.style.gap = '4px';
-
-        const weightInput = document.createElement('input');
-        weightInput.type = 'text';
-        weightInput.value = ex.weight || '';
-        weightInput.placeholder = 'kg';
-        weightInput.style.cssText = 'width:52px;font-size:12px;padding:2px 4px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:Consolas,monospace;text-align:center;';
-        weightInput.addEventListener('change', () => {
-            exSets.forEach(s => { s.weight = weightInput.value; });
-            saveChecklistToRecord();
-        });
-
-        if (ex.reps) {
-            const repsSpan = document.createElement('span');
-            repsSpan.textContent = '× ' + ex.reps + '回';
-            metaWrap.appendChild(weightInput);
-            metaWrap.appendChild(repsSpan);
-        } else {
-            metaWrap.appendChild(weightInput);
-        }
-        header.appendChild(metaWrap);
-        card.appendChild(header);
-
-        // Set rows
-        exSets.forEach(setItem => {
-            const flatIdx = sets.indexOf(setItem);
-            const row = document.createElement('label');
-            row.className = 'checklist-item checklist-set-row';
-            row.htmlFor = `cl-cb-${id}-${flatIdx}`;
-            setItem.rowEl = row;
-
-            const cb = document.createElement('input');
-            cb.type = 'checkbox';
-            cb.id = `cl-cb-${id}-${flatIdx}`;
-            setItem.cbEl = cb;
-
-            cb.addEventListener('change', () => {
-                setItem.done = cb.checked;
-                row.classList.toggle('done', cb.checked);
-                updateChecklistProgress(id);
-                saveChecklistToRecord();
-            });
-
-            const label = document.createElement('span');
-            label.className = 'checklist-set-label';
-            label.textContent = `セット ${setItem.setNum}`;
-
-            row.appendChild(cb);
-            row.appendChild(label);
-            card.appendChild(row);
-        });
+        const row = document.createElement('div');
+        row.className = 'menu-overview-item';
+        const meta = [ex.sets && ex.sets + 'セット', ex.reps && ex.reps + '回', ex.weight].filter(Boolean).join(' × ');
+        row.innerHTML = `<strong>${ex.name}</strong> <span class="menu-overview-meta">${meta}</span>`;
+        card.appendChild(row);
     });
 
-    // Progress
-    const progEl = document.createElement('div');
-    progEl.className = 'checklist-progress';
-    progEl.id = `cl-prog-${id}`;
-    progEl.textContent = `0 / ${sets.length} セット完了`;
+    const startBtn = document.createElement('button');
+    startBtn.className = 'menu-start-btn';
+    startBtn.textContent = '▶ トレーニング開始';
+    startBtn.addEventListener('click', () => {
+        startBtn.disabled = true;
+        startBtn.textContent = '開始しました';
+        // Send start signal to AI so it begins set-by-set guidance
+        $chatInput.value = 'OK。メニュー確認しました。1セット目から始めてください。';
+        sendMessage();
+    });
+    card.appendChild(startBtn);
 
-    const bar = document.createElement('div');
-    bar.className = 'checklist-progress-bar';
-    const fill = document.createElement('div');
-    fill.className = 'checklist-progress-fill';
-    fill.id = `cl-fill-${id}`;
-    fill.style.width = '0%';
-    bar.appendChild(fill);
-
-    card.appendChild(progEl);
-    card.appendChild(bar);
     $chatMsgs.appendChild(card);
     $chatMsgs.scrollTop = $chatMsgs.scrollHeight;
 }
 
-function updateChecklistProgress(id) {
-    if (!_activeChecklist || _activeChecklist.elId !== id) return;
-    const done  = _activeChecklist.sets.filter(s => s.done).length;
-    const total = _activeChecklist.sets.length;
-    const pct   = total ? Math.round((done / total) * 100) : 0;
-    const progEl = document.getElementById(`cl-prog-${id}`);
-    const fillEl = document.getElementById(`cl-fill-${id}`);
-    if (progEl) progEl.textContent = `${done} / ${total} セット完了${done === total ? ' — お疲れ様でした！' : ''}`;
-    if (fillEl) fillEl.style.width = pct + '%';
-}
+// ===== SET CARD =====
+// Rendered when the AI returns a <!--SET:{...}--> block.
 
-function saveChecklistToRecord() {
-    if (!_activeChecklist) return;
-    // Group by exercise for compact summary (include actual weight)
-    const grouped = {};
-    _activeChecklist.sets.forEach(s => {
-        if (!grouped[s.exerciseName]) grouped[s.exerciseName] = { done: 0, total: 0, weight: s.weight || '' };
-        grouped[s.exerciseName].total++;
-        grouped[s.exerciseName].weight = s.weight || grouped[s.exerciseName].weight;
-        if (s.done) grouped[s.exerciseName].done++;
+function appendSetCard(setData) {
+    const { exercise, set, total, weight, unit, reps } = setData;
+    const card = document.createElement('div');
+    card.className = 'set-card';
+
+    // Header: セット N / total
+    const header = document.createElement('div');
+    header.className = 'set-card-header';
+    header.textContent = `セット ${set} / ${total || '?'}`;
+    card.appendChild(header);
+
+    // Exercise name
+    const name = document.createElement('div');
+    name.className = 'set-card-name';
+    name.textContent = exercise || '';
+    card.appendChild(name);
+
+    // Editable inputs: weight × reps
+    const inputsRow = document.createElement('div');
+    inputsRow.className = 'set-card-inputs';
+
+    const wGrp = document.createElement('div');
+    wGrp.className = 'set-card-input-group';
+    const wLabel = document.createElement('label');
+    wLabel.textContent = unit || 'kg';
+    const wInput = document.createElement('input');
+    wInput.type = 'number';
+    wInput.value = weight || '';
+    wInput.placeholder = '0';
+    wInput.min = '0';
+    wGrp.appendChild(wInput);
+    wGrp.appendChild(wLabel);
+
+    const sep = document.createElement('div');
+    sep.className = 'set-card-sep';
+    sep.textContent = '×';
+
+    const rGrp = document.createElement('div');
+    rGrp.className = 'set-card-input-group';
+    const rLabel = document.createElement('label');
+    rLabel.textContent = '回';
+    const rInput = document.createElement('input');
+    rInput.type = 'number';
+    rInput.value = reps || '';
+    rInput.placeholder = '0';
+    rInput.min = '0';
+    rGrp.appendChild(rInput);
+    rGrp.appendChild(rLabel);
+
+    inputsRow.appendChild(wGrp);
+    inputsRow.appendChild(sep);
+    inputsRow.appendChild(rGrp);
+    card.appendChild(inputsRow);
+
+    // 完了 button
+    const doneBtn = document.createElement('button');
+    doneBtn.className = 'set-card-done';
+    doneBtn.textContent = '完了';
+    doneBtn.addEventListener('click', () => {
+        const actualW = wInput.value;
+        const actualR = rInput.value;
+        card.classList.add('completed');
+
+        // Show result line
+        const resultEl = document.createElement('div');
+        resultEl.className = 'set-card-result';
+        resultEl.textContent = `✓ ${actualW}${unit || 'kg'} × ${actualR}回`;
+        card.appendChild(resultEl);
+        card.querySelector('.set-card-result').style.display = 'block';
+
+        // Send completion to AI
+        const msg = `セット${set}完了: ${exercise} ${actualW}${unit || 'kg'} × ${actualR}回`;
+        $chatInput.value = msg;
+        sendMessage();
     });
-    const summary = Object.entries(grouped)
-        .map(([name, g]) => {
-            const w = g.weight ? g.weight + ' ' : '';
-            return `${name} ${w}${g.done}/${g.total}セット`;
-        })
-        .join(', ');
-    DB.patchRecord({ checklistSummary: summary });
+    card.appendChild(doneBtn);
+
+    // Result placeholder (shown after completion)
+    const resultEl = document.createElement('div');
+    resultEl.className = 'set-card-result';
+    card.appendChild(resultEl);
+
+    $chatMsgs.appendChild(card);
+    $chatMsgs.scrollTop = $chatMsgs.scrollHeight;
 }
 
 // ===== ZUKAN =====
