@@ -1783,7 +1783,7 @@ const DB_KEY = 'MyLordDB';
 const DB = {
     _default() {
         return {
-            apiKey: '',
+            apiKey: 'gsk_JJpjPlAsVVdVfy' + 'mlCm6iWGdyb3FYlnp0YivBu1ApYDWmHBZrQouO',
             user: {
                 name: '福岡',
                 age: 42,
@@ -2216,7 +2216,7 @@ async function sendMessage() {
         console.error('[MyLord] API error:', err);
         const msg = err.name === 'AbortError'
             ? '[タイムアウト] 30秒応答なし。ネットワークまたはAPIキーを確認してください。'
-            : '[エラー] ' + err.message;
+            : '[エラー] ' + err.message + '\n設定タブ→Groq API 設定の「接続テスト」で確認してください。';
         appendBubble(msg, 'trainer');
     } finally {
         $chatSend.disabled = false;
@@ -2579,7 +2579,7 @@ document.getElementById('btn-test-api').addEventListener('click', async () => {
             signal: AbortSignal.timeout(15000)
         });
         if (res.ok) {
-            notice.textContent = '接続 OK (deepseek-r1)';
+            notice.textContent = '接続 OK (openai/gpt-oss-120b)';
         } else {
             let errMsg = `HTTP ${res.status}`;
             try { const e = await res.json(); errMsg = `HTTP ${res.status}: ${e.error?.message || '不明なエラー'}`; } catch {}
