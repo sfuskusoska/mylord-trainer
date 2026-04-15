@@ -2619,6 +2619,12 @@ function renderChatHistory() {
     $chatMsgs.innerHTML = '';
     const msgs = DB.getChatByDate(chatViewDate);
     const isToday = chatViewDate === DB.todayStr();
+
+    // Restore session plan card if active session exists for today
+    if (isToday && _sessionPlan && _sessionPlan.date === DB.todayStr()) {
+        renderSessionSummaryCard();
+    }
+
     if (!msgs || msgs.length === 0) {
         if (isToday) {
             appendBubble(
@@ -2634,6 +2640,25 @@ function renderChatHistory() {
         appendBubble(msg.content, msg.role === 'user' ? 'user' : 'trainer', msg.ts, msg.imgDataUrl);
     });
     $chatMsgs.scrollTop = $chatMsgs.scrollHeight;
+}
+
+// Show confirmed menu summary at top of chat when session is active
+function renderSessionSummaryCard() {
+    if (!_sessionPlan) return;
+    const card = document.createElement('div');
+    card.style.cssText = 'background:var(--surface);border:1px solid var(--accent);border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:12px;';
+    const total = _sessionPlan.exercises.length;
+    const done  = _sessionPlan.exercises.filter(e => e.results?.length >= e.totalSets).length;
+    const curr  = _sessionPlan.exercises[_sessionPlan.exIdx];
+    let html = `<div style="font-weight:600;color:var(--accent);margin-bottom:6px;">📋 本日のメニュー (${done}/${total} 完了)</div>`;
+    _sessionPlan.exercises.forEach((ex, i) => {
+        const isDone = ex.results?.length >= ex.totalSets;
+        const isCurr = i === _sessionPlan.exIdx;
+        const icon = isDone ? '✅' : isCurr ? '▶' : '○';
+        html += `<div style="padding:2px 0;color:${isCurr?'var(--text)':'var(--text-muted)'};">${icon} ${ex.name} ${ex.totalSets}×${ex.reps} @ ${ex.weight}${ex.unit||'kg'}</div>`;
+    });
+    card.innerHTML = html;
+    $chatMsgs.insertBefore(card, $chatMsgs.firstChild);
 }
 
 function appendBubble(text, side, ts, imgDataUrl) {
@@ -2865,9 +2890,14 @@ ${(() => {
     const dayOrder = ['Day1','Day2','Day3','Day4'];
     const dayNames = { Day1:'胸・三頭筋', Day2:'背中・二頭筋', Day3:'下半身・体幹', Day4:'肩・腕＋有酸素' };
     const wk = d.workouts || {};
-    const byDay = Object.entries(wk).filter(([,w])=>w.dayType&&dayOrder.includes(w.dayType)).sort(([a],[b])=>a<b?-1:1);
+    const recs = d.records || {};
+    // Merge dayType from both workouts and records (records set via RECORD block)
+    const allDayEntries = {};
+    Object.entries(recs).forEach(([date, r]) => { if (r.dayType && dayOrder.includes(r.dayType)) allDayEntries[date] = r.dayType; });
+    Object.entries(wk).forEach(([date, w]) => { if (w.dayType && dayOrder.includes(w.dayType)) allDayEntries[date] = w.dayType; });
+    const byDay = Object.entries(allDayEntries).sort(([a],[b])=>a<b?-1:1);
     const lastEntry = byDay[byDay.length-1];
-    const lastType  = lastEntry?.[1]?.dayType;
+    const lastType  = lastEntry?.[1];
     const lastDate  = lastEntry?.[0];
     const nextType  = lastType ? dayOrder[(dayOrder.indexOf(lastType)+1)%dayOrder.length] : 'Day1';
     const split = dayOrder.map(dn=>`- ${dn}: ${dayNames[dn]}${dn===lastType&&lastDate?`（前回${lastDate}）`:''}${dn===nextType?' ←次':''}`).join('\n');
@@ -2882,9 +2912,10 @@ ${DB.getRecentWorkoutSummary(5)}
 【ジム登録器具】${(d.gymEquipment||[]).length ? (d.gymEquipment||[]).map(e=>`${e.name}(${e.category})`).join('、') : '未登録（写真を送ると自動登録）'}
 メニュー作成時は登録器具のみを使う。未登録の場合は一般的な器具でよい。
 
-[出力ルール — 厳守]
-メニュー提示時: 会話文に種目リスト・表を書かない。末尾に必ず↓
+[出力ルール — 絶対厳守。違反禁止]
+★メニュー提示・変更・追加時: 本文に種目名・リスト・表・マークダウンを一切書かない。必ず末尾にMENUブロックのみ↓
 <!--MENU:[{"name":"種目名","sets":"4","reps":"8","weight":"70kg"},...]-->
+★MENUブロックなしのメニュー提示は禁止。箇条書き・番号付きリスト・表でメニューを出すのも禁止。
 
 セット完了報告/コーチング依頼時:
 - 1〜2文コメントのみ。セッション終了・翌日プログラムは言わない（ユーザーが終了と言うまで）
@@ -3057,7 +3088,7 @@ function updateVoiceModeBtn() {
 async function transcribeAudio(blob) {
     const apiKey = DB.get().apiKey;
     if (!apiKey) throw new Error('APIキー未設定');
-    const ext = blob.type.includes('ogg') ? 'ogg' : blob.type.includes('mp4') ? 'mp4' : 'webm';
+    const ext = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : blob.type.includes('webm') ? 'webm' : 'm4a';
     const form = new FormData();
     form.append('file', blob, `audio.${ext}`);
     form.append('model', 'whisper-large-v3-turbo');
@@ -3074,22 +3105,28 @@ async function transcribeAudio(blob) {
 
 async function startRecording() {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
-                   : MediaRecorder.isTypeSupported('audio/mp4')  ? 'audio/mp4'  : 'audio/ogg';
-    _mediaRecorder = new MediaRecorder(stream, { mimeType });
+    // iOS Safari supports only audio/mp4; desktop Chrome supports audio/webm
+    const TYPES = ['audio/mp4;codecs=mp4a.40.2','audio/mp4','audio/webm;codecs=opus','audio/webm','audio/ogg'];
+    const mimeType = TYPES.find(t => MediaRecorder.isTypeSupported(t)) || '';
+    _mediaRecorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream); // fallback: let browser choose
     _audioChunks = [];
     _mediaRecorder.ondataavailable = e => { if (e.data.size > 0) _audioChunks.push(e.data); };
-    _mediaRecorder.start(100);
+    _mediaRecorder.start(200);
 }
 
 async function stopRecordingAndGetBlob() {
-    return new Promise(resolve => {
+    if (!_mediaRecorder || _mediaRecorder.state === 'inactive') throw new Error('録音が開始されていません');
+    return new Promise((resolve, reject) => {
         _mediaRecorder.onstop = () => {
-            const blob = new Blob(_audioChunks, { type: _mediaRecorder.mimeType });
-            _mediaRecorder.stream.getTracks().forEach(t => t.stop());
+            const mime = _mediaRecorder.mimeType || 'audio/mp4';
+            const blob = new Blob(_audioChunks, { type: mime });
+            try { _mediaRecorder.stream.getTracks().forEach(t => t.stop()); } catch {}
+            if (blob.size < 100) { reject(new Error('録音データが短すぎます')); return; }
             resolve(blob);
         };
-        _mediaRecorder.stop();
+        try { _mediaRecorder.stop(); } catch(e) { reject(e); }
     });
 }
 
@@ -3098,25 +3135,30 @@ const micBtn = document.getElementById('btn-mic');
 let _micRecording = false;
 
 async function micStart() {
-    if (_micRecording) return;
-    _micRecording = true;
+    if (_micRecording || !micBtn) return;
+    _micRecording = false; // set after successful start
     micBtn.style.background = '#e74c3c';
     micBtn.style.color = '#fff';
-    try { await startRecording(); } catch(e) { alert('マイクへのアクセスを許可してください'); _micRecording = false; micBtn.style.background = ''; micBtn.style.color = ''; }
+    try {
+        await startRecording();
+        _micRecording = true;
+    } catch(e) {
+        micBtn.style.background = '';
+        micBtn.style.color = '';
+        alert('マイクへのアクセスを許可してください: ' + e.message);
+    }
 }
 async function micStop() {
     if (!_micRecording) return;
     _micRecording = false;
-    micBtn.style.background = '';
-    micBtn.style.color = '';
-    micBtn.textContent = '⏳';
+    if (micBtn) { micBtn.style.background = ''; micBtn.style.color = ''; micBtn.textContent = '⏳'; }
     try {
         const blob = await stopRecordingAndGetBlob();
         const text = await transcribeAudio(blob);
         if (text) $chatInput.value += ($chatInput.value ? ' ' : '') + text;
         $chatInput.focus();
     } catch(e) { alert('音声認識エラー: ' + e.message); }
-    finally { micBtn.textContent = '🎤'; }
+    finally { if (micBtn) micBtn.textContent = '🎤'; }
 }
 
 if (micBtn) {
@@ -3525,8 +3567,21 @@ function updateHeaderDate() {
 
 // ===== SESSION STATE =====
 // App owns session progress. AI only provides coaching commentary.
+const SESSION_KEY = 'MyLordSession';
 let _sessionPlan = null;
 // { exercises: [{name, totalSets, reps, weight, unit, results:[{w,r}]}], exIdx }
+
+function saveSessionPlan() {
+    if (_sessionPlan) localStorage.setItem(SESSION_KEY, JSON.stringify(_sessionPlan));
+    else localStorage.removeItem(SESSION_KEY);
+}
+function loadSessionPlan() {
+    try {
+        const s = localStorage.getItem(SESSION_KEY);
+        if (s) _sessionPlan = JSON.parse(s);
+    } catch {}
+}
+loadSessionPlan(); // restore on page load
 
 function sessionCurrentEx() {
     if (!_sessionPlan) return null;
@@ -3591,7 +3646,8 @@ function appendChecklist(exercises) {
         startBtn.disabled = true;
         startBtn.textContent = '開始しました';
         // Initialise session state
-        _sessionPlan = { exercises: exList, exIdx: 0 };
+        _sessionPlan = { exercises: exList, exIdx: 0, date: chatViewDate };
+        saveSessionPlan();
         // Show first set card and notify AI
         showNextSetCard(true);
     });
@@ -3623,6 +3679,7 @@ function showNextSetCard(firstOfSession = false) {
         }
         appendBubble(`全種目完了！お疲れ様でした 🏆\n${summary}\n\n追加種目があればチャットで伝えてください。`, 'trainer');
         _sessionPlan = null;
+        saveSessionPlan();
         return;
     }
     const setNum = ex.results.length + 1;
@@ -3758,6 +3815,7 @@ function appendSetCard(setData) {
                 ex.weight = String(actualW);
                 if (ex.results.length >= ex.totalSets) _sessionPlan.exIdx++;
             }
+            saveSessionPlan();
         }
 
         // ★ Start rest timer
