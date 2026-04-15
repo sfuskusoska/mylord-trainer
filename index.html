@@ -268,6 +268,19 @@
             border-bottom: 1px solid var(--border-muted);
         }
 
+        /* ===== BODY POWER GAUGE ===== */
+        .power-gauge-wrap { display:flex; gap:20px; align-items:center; flex-wrap:wrap; }
+        .power-ring-wrap  { display:flex; flex-direction:column; align-items:center; min-width:130px; }
+        .power-ring       { width:120px; height:120px; }
+        .power-ring-label { font-size:11px; color:var(--text-muted); margin-top:4px; text-align:center; }
+        .power-bars       { flex:1; min-width:180px; display:flex; flex-direction:column; gap:8px; }
+        .power-bar-row    { display:flex; align-items:center; gap:6px; }
+        .power-bar-label  { font-size:11px; color:var(--text-muted); width:68px; flex-shrink:0; }
+        .power-bar-track  { flex:1; height:8px; background:var(--border); border-radius:4px; overflow:hidden; }
+        .power-bar-fill   { height:100%; border-radius:4px; transition:width 1s ease, background 0.5s; background:var(--accent); }
+        .power-bar-pct    { font-size:11px; color:var(--text); width:36px; text-align:right; flex-shrink:0; }
+        .power-bar-note   { font-size:10px; color:var(--text-muted); margin-top:4px; }
+
         /* ===== STATS ===== */
         .stats-row {
             display: grid;
@@ -1575,6 +1588,8 @@
                         <input type="file" id="chat-image-input" accept="image/*" style="display:none;">
                         <textarea id="chat-input" placeholder="メッセージを入力" enterkeyhint="send" inputmode="text"></textarea>
                         <button class="btn btn-primary" id="chat-send">送信</button>
+                        <button id="btn-mic" title="長押しで音声入力" style="padding:0 10px;height:40px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:18px;cursor:pointer;flex-shrink:0;">🎤</button>
+                        <button id="btn-voice-mode" title="ハンズフリー音声会話" style="padding:0 8px;height:40px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text-muted);font-size:11px;cursor:pointer;flex-shrink:0;line-height:1.2;max-width:48px;">声<br><span id="voice-mode-remain">5</span></button>
                     </div>
                 </div>
             </div>
@@ -1588,6 +1603,49 @@
             <div class="page-header">
                 <h1>ダッシュボード</h1>
                 <p id="header-date"></p>
+            </div>
+
+            <!-- Body Power Gauge -->
+            <div class="card" id="body-power-card">
+                <div class="card-title">💪 BODY POWER</div>
+                <div class="power-gauge-wrap">
+                    <div class="power-ring-wrap">
+                        <svg class="power-ring" viewBox="0 0 120 120">
+                            <circle cx="60" cy="60" r="50" fill="none" stroke="var(--border)" stroke-width="10"/>
+                            <circle id="power-ring-fill" cx="60" cy="60" r="50" fill="none"
+                                stroke="var(--accent)" stroke-width="10"
+                                stroke-dasharray="314.16" stroke-dashoffset="314.16"
+                                transform="rotate(-90 60 60)"
+                                style="transition:stroke-dashoffset 1s ease, stroke 0.5s;"/>
+                            <text id="power-level-num" x="60" y="55" text-anchor="middle" font-size="26" font-weight="bold" fill="var(--text)">0</text>
+                            <text x="60" y="72" text-anchor="middle" font-size="10" fill="var(--text-muted)">LEVEL</text>
+                        </svg>
+                        <div class="power-ring-label" id="power-ring-label">データ蓄積中</div>
+                    </div>
+                    <div class="power-bars">
+                        <div class="power-bar-row">
+                            <span class="power-bar-label">胸・三頭</span>
+                            <div class="power-bar-track"><div class="power-bar-fill" id="pbar-day1" style="width:0%"></div></div>
+                            <span class="power-bar-pct" id="ppct-day1">--</span>
+                        </div>
+                        <div class="power-bar-row">
+                            <span class="power-bar-label">背中・二頭</span>
+                            <div class="power-bar-track"><div class="power-bar-fill" id="pbar-day2" style="width:0%"></div></div>
+                            <span class="power-bar-pct" id="ppct-day2">--</span>
+                        </div>
+                        <div class="power-bar-row">
+                            <span class="power-bar-label">下半身</span>
+                            <div class="power-bar-track"><div class="power-bar-fill" id="pbar-day3" style="width:0%"></div></div>
+                            <span class="power-bar-pct" id="ppct-day3">--</span>
+                        </div>
+                        <div class="power-bar-row">
+                            <span class="power-bar-label">肩・腕</span>
+                            <div class="power-bar-track"><div class="power-bar-fill" id="pbar-day4" style="width:0%"></div></div>
+                            <span class="power-bar-pct" id="ppct-day4">--</span>
+                        </div>
+                        <div class="power-bar-note" id="power-bar-note">部位ごとの回復状態 + 筋力伸び率</div>
+                    </div>
+                </div>
             </div>
 
             <!-- Stats -->
@@ -1642,7 +1700,12 @@
                                 <label class="check-label">
                                     <input type="checkbox" id="meal-night"> 夕食
                                 </label>
+                                <label style="cursor:pointer;margin-left:auto;" title="食事写真でカロリー推定">
+                                    <input type="file" id="food-image-input" accept="image/*" style="display:none;">
+                                    <span style="font-size:20px;">📷</span>
+                                </label>
                             </div>
+                            <div id="food-calorie-result" style="display:none;margin-top:8px;padding:8px;background:var(--surface);border-radius:6px;font-size:12px;color:var(--text);border:1px solid var(--border);"></div>
                         </div>
 
                         <div class="form-group">
@@ -1709,6 +1772,26 @@
             <div class="card">
                 <div class="card-title">日次ログ</div>
                 <div id="daily-summaries-list"></div>
+            </div>
+
+            <!-- Weekly Report -->
+            <div class="card">
+                <div class="card-title">週次AIレポート</div>
+                <p style="font-size:13px;color:var(--text-muted);margin-bottom:10px;">直近7日間のトレーニング・体重データをAIが分析して総評を出します。</p>
+                <button class="btn btn-primary" id="btn-weekly-report">📊 週次レポートを生成</button>
+                <div id="weekly-report-content" style="margin-top:12px;font-size:13px;white-space:pre-wrap;line-height:1.6;"></div>
+            </div>
+
+            <!-- 1RM Progress Chart -->
+            <div class="card">
+                <div class="card-title">筋力推移 (1RM)</div>
+                <select id="rm-chart-select" style="width:100%;margin-bottom:10px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;">
+                    <option value="">種目を選択...</option>
+                </select>
+                <svg id="rm-chart-svg" viewBox="0 0 360 160" style="width:100%;overflow:visible;display:none;">
+                    <g id="rm-chart-g"></g>
+                </svg>
+                <div id="rm-chart-empty" style="font-size:13px;color:var(--text-muted);text-align:center;padding:20px 0;">種目を選択すると1RM推移が表示されます</div>
             </div>
 
             <!-- Exercise History -->
@@ -2045,7 +2128,9 @@ const DB = {
             chatHistory: {},    // date-keyed: { "2026-04-09": [{role,content,ts},...] }
             dailySummaries: {},  // date-keyed: { "2026-04-09": "summary text" }
             workouts: {},        // date-keyed: { dayType, exercises:[{name,sets:[{weight,reps,unit,ts}]}] }
-            gymEquipment: []     // [{name,category,exercises:[],addedDate}]
+            gymEquipment: [],    // [{name,category,exercises:[],addedDate}]
+            voiceUsage: {},      // date-keyed: { countB: 0 }
+            strengthBaseline: {} // exercise-name keyed: { baseline1RM, date }
         };
     },
 
@@ -2085,6 +2170,8 @@ const DB = {
         if (!data.workouts || typeof data.workouts !== 'object') data.workouts = {};
         if (!data.dailySummaries || typeof data.dailySummaries !== 'object') data.dailySummaries = {};
         if (!Array.isArray(data.gymEquipment)) data.gymEquipment = [];
+        if (!data.voiceUsage || typeof data.voiceUsage !== 'object') data.voiceUsage = {};
+        if (!data.strengthBaseline || typeof data.strengthBaseline !== 'object') data.strengthBaseline = {};
         if (typeof data.apiKey !== 'string') data.apiKey = '';
         if (!data.apiKey) data.apiKey = 'gsk_JJpjPlAsVVdVfy' + 'mlCm6iWGdyb3FYlnp0YivBu1ApYDWmHBZrQouO';
         localStorage.setItem(DB_KEY, JSON.stringify(data));
@@ -2335,6 +2422,83 @@ function setText(id, val) {
     if (el) el.textContent = val;
 }
 
+// ===== BODY POWER GAUGE =====
+function updateBodyPowerGauge() {
+    const d = DB.get();
+    const wk = d.workouts || {};
+    const today = DB.todayStr();
+    const DAY_TYPES = { Day1:'胸・三頭', Day2:'背中・二頭', Day3:'下半身・体幹', Day4:'肩・腕' };
+    const DAY_IDS   = { Day1:'day1',     Day2:'day2',      Day3:'day3',       Day4:'day4' };
+
+    // Last training date per day type
+    const lastTrained = {};
+    Object.entries(wk).sort(([a],[b])=>a<b?-1:1).forEach(([date, entry]) => {
+        if (entry.dayType && DAY_TYPES[entry.dayType]) lastTrained[entry.dayType] = date;
+    });
+
+    // Recovery score per day (0–100): 100 = fully recovered (>=2 days rest)
+    function recoveryScore(dayType) {
+        const last = lastTrained[dayType];
+        if (!last) return 80; // no data → assume decent
+        const diffDays = (new Date(today) - new Date(last)) / 86400000;
+        return Math.min(100, Math.round(diffDays / 2 * 100));
+    }
+
+    // Strength score per day: based on 1RM progress vs baseline
+    function strengthScore(dayType) {
+        const baseline = d.strengthBaseline || {};
+        // Collect exercises for this day type
+        const scores = [];
+        Object.entries(wk).forEach(([, entry]) => {
+            if (entry.dayType !== dayType) return;
+            (entry.exercises || []).forEach(ex => {
+                const sets = ex.sets || [];
+                sets.forEach(s => {
+                    const rm = DB.calc1RM(parseFloat(s.weight) || 0, parseInt(s.reps) || 1);
+                    if (rm <= 0) return;
+                    const b = baseline[ex.name];
+                    if (!b) return;
+                    const gain = (rm - b.baseline1RM) / b.baseline1RM * 100;
+                    scores.push(gain);
+                });
+            });
+        });
+        if (!scores.length) return 50;
+        const avg = scores.reduce((a,b)=>a+b,0)/scores.length;
+        return Math.min(100, Math.max(0, Math.round(50 + avg * 2)));
+    }
+
+    // Update per-day bars: combo of recovery(60%) + strength(40%)
+    let totalScore = 0;
+    let dayCount = 0;
+    ['Day1','Day2','Day3','Day4'].forEach(dt => {
+        const rec = recoveryScore(dt);
+        const str = strengthScore(dt);
+        const combo = Math.round(rec * 0.6 + str * 0.4);
+        totalScore += combo;
+        dayCount++;
+        const barEl = document.getElementById('pbar-' + DAY_IDS[dt]);
+        const pctEl = document.getElementById('ppct-' + DAY_IDS[dt]);
+        const last  = lastTrained[dt];
+        const diffDays = last ? Math.round((new Date(today) - new Date(last)) / 86400000) : null;
+        if (barEl) {
+            barEl.style.width = combo + '%';
+            barEl.style.background = combo >= 70 ? 'var(--success)' : combo >= 40 ? 'var(--accent)' : '#e74c3c';
+        }
+        if (pctEl) pctEl.textContent = diffDays !== null ? diffDays + '日前' : '未';
+    });
+
+    const overallLevel = Math.round(totalScore / dayCount);
+    const circumference = 314.16;
+    const offset = circumference - (overallLevel / 100) * circumference;
+    const ring  = document.getElementById('power-ring-fill');
+    const numEl = document.getElementById('power-level-num');
+    const lblEl = document.getElementById('power-ring-label');
+    if (ring)  { ring.style.strokeDashoffset = offset; ring.style.stroke = overallLevel >= 70 ? 'var(--success)' : overallLevel >= 40 ? 'var(--accent)' : '#e74c3c'; }
+    if (numEl) numEl.textContent = overallLevel;
+    if (lblEl) lblEl.textContent = overallLevel >= 80 ? '絶好調！' : overallLevel >= 60 ? '良好' : overallLevel >= 40 ? '回復中' : '疲労注意';
+}
+
 // ===== RECORD FORM =====
 function loadTodayForm() {
     const r = DB.todayRecord();
@@ -2363,7 +2527,7 @@ document.getElementById('btn-save').addEventListener('click', () => {
     fields.night   = document.getElementById('meal-night').checked;
 
     DB.patchRecord(fields);
-    updateStats();
+    updateStats(); updateBodyPowerGauge();
     flashNotice('save-notice', '保存しました');
 });
 
@@ -2607,7 +2771,7 @@ async function sendMessage() {
                 if (rec.dayType)          fields.dayType  = rec.dayType;
                 if (Object.keys(fields).length) {
                     DB.patchRecord(fields);
-                    updateStats();
+                    updateStats(); updateBodyPowerGauge();
                     loadTodayForm();
                     const saved = Object.entries(fields)
                         .filter(([,v]) => v !== null && v !== '')
@@ -2859,6 +3023,227 @@ $chatInput.addEventListener('blur', () => {
     }, 150);
 });
 
+// ===== VOICE INPUT (A + B) =====
+const VOICE_B_DAILY_LIMIT = 5;
+let _mediaRecorder = null;
+let _audioChunks   = [];
+let _voiceModeOn   = false;
+
+function getVoiceBUsed() {
+    const d = DB.get();
+    const today = DB.todayStr();
+    return (d.voiceUsage?.[today]?.countB) || 0;
+}
+function incVoiceBUsed() {
+    const d = DB.get();
+    const today = DB.todayStr();
+    if (!d.voiceUsage) d.voiceUsage = {};
+    if (!d.voiceUsage[today]) d.voiceUsage[today] = { countB: 0 };
+    d.voiceUsage[today].countB++;
+    DB.save(d);
+}
+function updateVoiceModeBtn() {
+    const btn = document.getElementById('btn-voice-mode');
+    const rem = document.getElementById('voice-mode-remain');
+    if (!btn || !rem) return;
+    const used = getVoiceBUsed();
+    const left = Math.max(0, VOICE_B_DAILY_LIMIT - used);
+    rem.textContent = left;
+    btn.style.background = _voiceModeOn ? 'var(--accent)' : 'var(--surface)';
+    btn.style.color = _voiceModeOn ? '#fff' : 'var(--text-muted)';
+    btn.title = `ハンズフリー音声会話 (残り${left}/${VOICE_B_DAILY_LIMIT}回)`;
+}
+
+async function transcribeAudio(blob) {
+    const apiKey = DB.get().apiKey;
+    if (!apiKey) throw new Error('APIキー未設定');
+    const ext = blob.type.includes('ogg') ? 'ogg' : blob.type.includes('mp4') ? 'mp4' : 'webm';
+    const form = new FormData();
+    form.append('file', blob, `audio.${ext}`);
+    form.append('model', 'whisper-large-v3-turbo');
+    form.append('language', 'ja');
+    const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + apiKey },
+        body: form
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>{}); throw new Error(`Whisper HTTP ${res.status}: ${e?.error?.message||''}`); }
+    const data = await res.json();
+    return data.text?.trim() || '';
+}
+
+async function startRecording() {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+                   : MediaRecorder.isTypeSupported('audio/mp4')  ? 'audio/mp4'  : 'audio/ogg';
+    _mediaRecorder = new MediaRecorder(stream, { mimeType });
+    _audioChunks = [];
+    _mediaRecorder.ondataavailable = e => { if (e.data.size > 0) _audioChunks.push(e.data); };
+    _mediaRecorder.start(100);
+}
+
+async function stopRecordingAndGetBlob() {
+    return new Promise(resolve => {
+        _mediaRecorder.onstop = () => {
+            const blob = new Blob(_audioChunks, { type: _mediaRecorder.mimeType });
+            _mediaRecorder.stream.getTracks().forEach(t => t.stop());
+            resolve(blob);
+        };
+        _mediaRecorder.stop();
+    });
+}
+
+// ── Voice Input A: hold mic button ──
+const micBtn = document.getElementById('btn-mic');
+let _micRecording = false;
+
+async function micStart() {
+    if (_micRecording) return;
+    _micRecording = true;
+    micBtn.style.background = '#e74c3c';
+    micBtn.style.color = '#fff';
+    try { await startRecording(); } catch(e) { alert('マイクへのアクセスを許可してください'); _micRecording = false; micBtn.style.background = ''; micBtn.style.color = ''; }
+}
+async function micStop() {
+    if (!_micRecording) return;
+    _micRecording = false;
+    micBtn.style.background = '';
+    micBtn.style.color = '';
+    micBtn.textContent = '⏳';
+    try {
+        const blob = await stopRecordingAndGetBlob();
+        const text = await transcribeAudio(blob);
+        if (text) $chatInput.value += ($chatInput.value ? ' ' : '') + text;
+        $chatInput.focus();
+    } catch(e) { alert('音声認識エラー: ' + e.message); }
+    finally { micBtn.textContent = '🎤'; }
+}
+
+if (micBtn) {
+    micBtn.addEventListener('pointerdown', e => { e.preventDefault(); micStart(); });
+    micBtn.addEventListener('pointerup',   () => micStop());
+    micBtn.addEventListener('pointerleave',() => { if (_micRecording) micStop(); });
+}
+
+// ── Voice Mode B: hands-free ──
+const voiceModeBtn = document.getElementById('btn-voice-mode');
+let _voiceLoopActive = false;
+
+async function voiceModeLoop() {
+    if (!_voiceModeOn || _voiceLoopActive) return;
+    if (getVoiceBUsed() >= VOICE_B_DAILY_LIMIT) {
+        _voiceModeOn = false; updateVoiceModeBtn();
+        appendBubble(`音声会話の本日の上限（${VOICE_B_DAILY_LIMIT}回）に達しました。明日また利用できます。`, 'trainer', new Date().toISOString());
+        return;
+    }
+    _voiceLoopActive = true;
+    const noticeEl = document.getElementById('typing');
+    if (noticeEl) noticeEl.textContent = '🎤 話してください...';
+    try {
+        await startRecording();
+        // Record for up to 10 seconds, or until user taps mic button again
+        await new Promise(res => setTimeout(res, 8000));
+        const blob = await stopRecordingAndGetBlob();
+        if (noticeEl) noticeEl.textContent = '変換中...';
+        const text = await transcribeAudio(blob);
+        if (!text || text.length < 2) { if (noticeEl) noticeEl.textContent = ''; _voiceLoopActive = false; if (_voiceModeOn) voiceModeLoop(); return; }
+        incVoiceBUsed(); updateVoiceModeBtn();
+        appendBubble(text, 'user', new Date().toISOString());
+        DB.addChat('user', text, chatViewDate);
+        $chatSend.disabled = true;
+        if (noticeEl) noticeEl.textContent = 'トレーナー が入力中...';
+        const reply = await callGroq(DB.get().apiKey);
+        if (noticeEl) noticeEl.textContent = '';
+        const nowTs = new Date().toISOString();
+        appendBubble(reply, 'trainer', nowTs);
+        DB.addChat('assistant', reply, chatViewDate);
+        // Read response aloud
+        _speak(reply.replace(/<!--.*?-->/gs, '').slice(0, 200));
+    } catch(e) {
+        if (noticeEl) noticeEl.textContent = '';
+        appendBubble('[音声エラー] ' + e.message, 'trainer', new Date().toISOString());
+    } finally {
+        $chatSend.disabled = false;
+        _voiceLoopActive = false;
+        if (_voiceModeOn) setTimeout(voiceModeLoop, 1500);
+    }
+}
+
+if (voiceModeBtn) {
+    voiceModeBtn.addEventListener('click', () => {
+        if (getVoiceBUsed() >= VOICE_B_DAILY_LIMIT && !_voiceModeOn) {
+            alert(`音声会話の本日の上限（${VOICE_B_DAILY_LIMIT}回）に達しました`); return;
+        }
+        _voiceModeOn = !_voiceModeOn;
+        updateVoiceModeBtn();
+        if (_voiceModeOn) voiceModeLoop();
+        else { if (_mediaRecorder?.state === 'recording') _mediaRecorder.stop(); }
+    });
+    updateVoiceModeBtn();
+}
+
+// ===== FOOD PHOTO → CALORIE =====
+document.getElementById('food-image-input')?.addEventListener('change', async function() {
+    const file = this.files[0];
+    if (!file) return;
+    const apiKey = DB.get().apiKey;
+    if (!apiKey) { alert('APIキーが未設定です'); return; }
+    const resultEl = document.getElementById('food-calorie-result');
+    resultEl.style.display = 'block';
+    resultEl.textContent = '📷 食事を分析中...';
+
+    // Convert to JPEG via canvas
+    let imgDataUrl;
+    try {
+        const rawUrl = URL.createObjectURL(file);
+        const img = await new Promise((res, rej) => { const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=rawUrl; });
+        const c = document.createElement('canvas');
+        const MAX = 800;
+        let w=img.naturalWidth, h=img.naturalHeight;
+        if (w>MAX||h>MAX) { if(w>h){h=Math.round(h*MAX/w);w=MAX;}else{w=Math.round(w*MAX/h);h=MAX;} }
+        c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
+        imgDataUrl = c.toDataURL('image/jpeg', 0.8);
+        URL.revokeObjectURL(rawUrl);
+    } catch(e) { resultEl.textContent = '画像変換失敗: ' + e.message; return; }
+
+    const b64 = imgDataUrl.split(',')[1];
+    const foodSystem = `栄養士AI。送られた食事の写真を分析し、以下を日本語で回答する。
+①食事内容（料理名と量の目安）
+②推定カロリー（kcal）
+③タンパク質・脂質・炭水化物（g）
+最後に必ず↓
+<!--FOOD:{"kcal":数字,"protein":数字,"fat":数字,"carbs":数字,"memo":"料理名"}-->`;
+    try {
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method:'POST',
+            headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
+            body: JSON.stringify({ model:'meta-llama/llama-4-scout-17b-16e-instruct', temperature:0.3, max_tokens:512,
+                messages:[{role:'system',content:foodSystem},{role:'user',content:[
+                    {type:'text',text:'この食事のカロリーと栄養素を教えてください'},
+                    {type:'image_url',image_url:{url:imgDataUrl}}
+                ]}]})
+        });
+        const data = await res.json();
+        let text = data.choices?.[0]?.message?.content?.trim() || '分析失敗';
+        // Parse FOOD block
+        const fm = text.match(/<!--FOOD:(\{.*?\})-->/s);
+        if (fm) {
+            try {
+                const fd = JSON.parse(fm[1]);
+                const d = DB.get(); const today = DB.todayStr();
+                if (!d.records[today]) d.records[today] = {};
+                d.records[today].kcal = (d.records[today].kcal||0) + (fd.kcal||0);
+                d.records[today].protein = (d.records[today].protein||0) + (fd.protein||0);
+                DB.save(d);
+                text = text.replace(/<!--FOOD:.*?-->/s,'').trim();
+                text += `\n\n✅ 本日累計: ${d.records[today].kcal}kcal / タンパク質${d.records[today].protein}g 記録済み`;
+            } catch {}
+        }
+        resultEl.textContent = text;
+    } catch(e) { resultEl.textContent = 'エラー: ' + e.message; }
+    this.value = '';
+});
+
 // ===== PROGRESS VIEW =====
 function renderProgress() {
     drawChart();
@@ -2868,6 +3253,7 @@ function renderProgress() {
     renderHeatmap();
     drawRadarChart();
     populateExerciseSelect();
+    populateRmChartSelect();
     renderLastWorkoutSummary();
 }
 
@@ -3096,7 +3482,7 @@ document.getElementById('btn-save-user').addEventListener('click', () => {
 
     d.user = user;
     DB.save(d);
-    updateStats();
+    updateStats(); updateBodyPowerGauge();
     flashNotice('user-notice', '保存しました');
 });
 
@@ -3353,6 +3739,16 @@ function appendSetCard(setData) {
 
         // ★ Immediate DB save — no AI dependency
         DB.saveSetResult(chatViewDate, exercise, { weight: actualW, reps: actualR, unit: u });
+        // Update strength baseline (only if no baseline yet, records first-ever 1RM)
+        if (rm > 0) {
+            const dbx = DB.get();
+            if (!dbx.strengthBaseline) dbx.strengthBaseline = {};
+            if (!dbx.strengthBaseline[exercise]) {
+                dbx.strengthBaseline[exercise] = { baseline1RM: rm, date: chatViewDate };
+                DB.save(dbx);
+            }
+        }
+        updateBodyPowerGauge();
 
         // Update session state
         if (_sessionPlan) {
@@ -3526,6 +3922,91 @@ function populateExerciseSelect() {
         sel.appendChild(opt);
     });
 }
+
+// ===== 1RM CHART =====
+function populateRmChartSelect() {
+    const sel = document.getElementById('rm-chart-select');
+    if (!sel) return;
+    const names = DB.allExerciseNames();
+    sel.innerHTML = '<option value="">種目を選択...</option>';
+    names.forEach(n => { const o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o); });
+}
+
+function renderRmChart(exerciseName) {
+    const svg = document.getElementById('rm-chart-svg');
+    const g   = document.getElementById('rm-chart-g');
+    const emptyEl = document.getElementById('rm-chart-empty');
+    if (!svg || !g) return;
+    if (!exerciseName) { svg.style.display = 'none'; emptyEl.style.display = 'block'; return; }
+
+    const history = DB.getExerciseHistory(exerciseName, 30);
+    const points = [];
+    history.reverse().forEach(session => {
+        const maxRm = Math.max(...(session.sets || []).map(s => DB.calc1RM(parseFloat(s.weight)||0, parseInt(s.reps)||1)).filter(v=>v>0));
+        if (maxRm > 0) points.push({ date: session.date, rm: maxRm });
+    });
+    if (points.length < 2) { svg.style.display = 'none'; emptyEl.textContent = 'データが2件以上必要です'; emptyEl.style.display = 'block'; return; }
+
+    svg.style.display = 'block'; emptyEl.style.display = 'none';
+    const W = 360, H = 160, PAD = { t:16, r:16, b:30, l:44 };
+    const minRm = Math.min(...points.map(p=>p.rm)) * 0.92;
+    const maxRm = Math.max(...points.map(p=>p.rm)) * 1.05;
+    const xScale = i => PAD.l + (i / (points.length - 1)) * (W - PAD.l - PAD.r);
+    const yScale = v => PAD.t + (1 - (v - minRm) / (maxRm - minRm)) * (H - PAD.t - PAD.b);
+
+    let html = `<line x1="${PAD.l}" y1="${PAD.t}" x2="${PAD.l}" y2="${H-PAD.b}" stroke="var(--border)" stroke-width="1"/>`;
+    html += `<line x1="${PAD.l}" y1="${H-PAD.b}" x2="${W-PAD.r}" y2="${H-PAD.b}" stroke="var(--border)" stroke-width="1"/>`;
+    // Y-axis labels
+    [0, 0.5, 1].forEach(f => {
+        const v = minRm + f * (maxRm - minRm);
+        const y = yScale(v);
+        html += `<text x="${PAD.l-4}" y="${y+4}" text-anchor="end" font-size="9" fill="var(--text-muted)">${Math.round(v)}</text>`;
+        html += `<line x1="${PAD.l}" y1="${y}" x2="${W-PAD.r}" y2="${y}" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="3,3"/>`;
+    });
+    // Line path
+    const pathD = points.map((p, i) => `${i===0?'M':'L'}${xScale(i).toFixed(1)},${yScale(p.rm).toFixed(1)}`).join(' ');
+    html += `<path d="${pathD}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
+    // Dots + PR marker
+    const maxRmVal = Math.max(...points.map(p=>p.rm));
+    points.forEach((p, i) => {
+        const x = xScale(i), y = yScale(p.rm);
+        const isPR = p.rm === maxRmVal;
+        html += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${isPR?5:3}" fill="${isPR?'#f1c40f':'var(--accent)'}"/>`;
+        if (isPR) html += `<text x="${x.toFixed(1)}" y="${(y-8).toFixed(1)}" text-anchor="middle" font-size="9" fill="#f1c40f">PR</text>`;
+    });
+    // X-axis: first, middle, last date
+    [0, Math.floor(points.length/2), points.length-1].forEach(i => {
+        html += `<text x="${xScale(i).toFixed(1)}" y="${H-PAD.b+14}" text-anchor="middle" font-size="8" fill="var(--text-muted)">${points[i].date.slice(5)}</text>`;
+    });
+    g.innerHTML = html;
+}
+
+document.getElementById('rm-chart-select')?.addEventListener('change', function() { renderRmChart(this.value); });
+
+// ===== WEEKLY REPORT =====
+document.getElementById('btn-weekly-report')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-weekly-report');
+    const out = document.getElementById('weekly-report-content');
+    const apiKey = DB.get().apiKey;
+    if (!apiKey) { out.textContent = 'APIキーが未設定です'; return; }
+    btn.disabled = true; btn.textContent = '生成中...';
+    try {
+        const d = DB.get();
+        const today = DB.todayStr();
+        const days7 = Array.from({length:7}, (_,i) => { const d2=new Date(today+'T00:00:00'); d2.setDate(d2.getDate()-i); return d2.toISOString().slice(0,10); }).reverse();
+        const weightLog = days7.map(dt => d.records?.[dt]?.weight ? `${dt.slice(5)}: ${d.records[dt].weight}kg` : null).filter(Boolean).join(', ') || 'なし';
+        const workoutLog = DB.getRecentWorkoutSummary(7);
+        const prompt = `【週次トレーニング総評】\n体重推移: ${weightLog}\n${workoutLog}\n\n以上のデータを分析し、①今週の成果、②改善点、③来週の重点課題を200字以内で日本語で答えてください。`;
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
+            body: JSON.stringify({ model:'openai/gpt-oss-120b', messages:[{role:'user',content:prompt}], max_tokens:512, temperature:0.5 })
+        });
+        const data = await res.json();
+        const text = data.choices?.[0]?.message?.content?.trim() || 'レポート生成失敗';
+        out.textContent = text;
+    } catch(e) { out.textContent = 'エラー: ' + e.message; }
+    finally { btn.disabled = false; btn.textContent = '📊 週次レポートを生成'; }
+});
 
 // ===== REPEAT LAST WORKOUT =====
 function renderLastWorkoutSummary() {
@@ -4295,7 +4776,7 @@ function endMatch() {
 
     // Save to today's record
     DB.patchRecord({ training: `試合モード ${min}分 ${km.toFixed(1)}km ${kcal}kcal`, dayType: 'Match' });
-    updateStats();
+    updateStats(); updateBodyPowerGauge();
 }
 
 // ===== BODY VISUALIZER =====
@@ -4799,7 +5280,7 @@ document.querySelectorAll('.cal-pick-btn').forEach(btn => {
 // ===== BOOT =====
 DB.init();
 updateHeaderDate();
-updateStats();
+updateStats(); updateBodyPowerGauge();
 loadTodayForm();
 initMatchView();
 setChatDate(DB.todayStr());
