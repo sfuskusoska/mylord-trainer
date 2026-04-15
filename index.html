@@ -1573,7 +1573,7 @@
                     <div class="chat-input-row">
                         <label for="chat-image-input" style="cursor:pointer; padding: 6px 10px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text-muted); font-size:18px; line-height:1; flex-shrink:0;" title="写真を添付">&#128247;</label>
                         <input type="file" id="chat-image-input" accept="image/*" style="display:none;">
-                        <textarea id="chat-input" placeholder="メッセージを入力"></textarea>
+                        <textarea id="chat-input" placeholder="メッセージを入力" enterkeyhint="send" inputmode="text"></textarea>
                         <button class="btn btn-primary" id="chat-send">送信</button>
                     </div>
                 </div>
@@ -2129,11 +2129,13 @@ const DB = {
         this.save(d);
     },
 
-    addChat(role, content, dateStr) {
+    addChat(role, content, dateStr, imgDataUrl) {
         const d = this.get();
         const key = dateStr || this.todayStr();
         if (!d.chatHistory[key]) d.chatHistory[key] = [];
-        d.chatHistory[key].push({ role, content, ts: new Date().toISOString() });
+        const entry = { role, content, ts: new Date().toISOString() };
+        if (imgDataUrl) entry.imgDataUrl = imgDataUrl;
+        d.chatHistory[key].push(entry);
         // Keep max 200 messages per day
         if (d.chatHistory[key].length > 200) d.chatHistory[key] = d.chatHistory[key].slice(-200);
         this.save(d);
@@ -2463,23 +2465,45 @@ function renderChatHistory() {
         return;
     }
     msgs.forEach(msg => {
-        appendBubble(msg.content, msg.role === 'user' ? 'user' : 'trainer');
+        appendBubble(msg.content, msg.role === 'user' ? 'user' : 'trainer', msg.ts, msg.imgDataUrl);
     });
     $chatMsgs.scrollTop = $chatMsgs.scrollHeight;
 }
 
-function appendBubble(text, side) {
+function appendBubble(text, side, ts, imgDataUrl) {
     const wrap = document.createElement('div');
     wrap.className = 'msg msg-' + side;
 
     const inner = document.createElement('div');
     inner.className = 'msg-inner';
 
+    // Image (if attached)
+    if (imgDataUrl) {
+        const imgEl = document.createElement('img');
+        imgEl.src = imgDataUrl;
+        imgEl.style.cssText = 'max-width:220px;max-height:180px;border-radius:8px;display:block;margin-bottom:4px;cursor:pointer;';
+        imgEl.addEventListener('click', () => {
+            const w = window.open(); w.document.write(`<img src="${imgDataUrl}" style="max-width:100%">`);
+        });
+        inner.appendChild(imgEl);
+    }
+
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
-    bubble.textContent = text;
+    if (text) bubble.textContent = text;
 
-    inner.appendChild(bubble);
+    // Timestamp
+    if (ts) {
+        const timeEl = document.createElement('div');
+        timeEl.style.cssText = 'font-size:10px;color:var(--text-muted);margin-top:2px;text-align:' + (side === 'user' ? 'right' : 'left');
+        const d = new Date(ts);
+        timeEl.textContent = d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+        inner.appendChild(bubble);
+        inner.appendChild(timeEl);
+    } else {
+        inner.appendChild(bubble);
+    }
+
     wrap.appendChild(inner);
     $chatMsgs.appendChild(wrap);
     $chatMsgs.scrollTop = $chatMsgs.scrollHeight;
@@ -2508,8 +2532,26 @@ async function sendMessage() {
     document.getElementById('image-preview-row').style.display = 'none';
     document.getElementById('image-preview-thumb').src = '';
 
-    appendBubble(msg || '[写真]', 'user');
-    DB.addChat('user', msg || '[写真送信]', chatViewDate);
+    // Store small thumbnail in history (256px) to avoid localStorage bloat
+    let historyImgDataUrl = null;
+    if (imageB64) {
+        try {
+            const thumbImg = new Image();
+            await new Promise(res => { thumbImg.onload = res; thumbImg.src = `data:${imageMime};base64,${imageB64}`; });
+            const tc = document.createElement('canvas');
+            const TMAX = 256;
+            let tw = thumbImg.naturalWidth, th = thumbImg.naturalHeight;
+            if (tw > TMAX || th > TMAX) {
+                if (tw > th) { th = Math.round(th * TMAX / tw); tw = TMAX; }
+                else         { tw = Math.round(tw * TMAX / th); th = TMAX; }
+            }
+            tc.width = tw; tc.height = th;
+            tc.getContext('2d').drawImage(thumbImg, 0, 0, tw, th);
+            historyImgDataUrl = tc.toDataURL('image/jpeg', 0.7);
+        } catch {}
+    }
+    appendBubble(msg || '', 'user', new Date().toISOString(), historyImgDataUrl);
+    DB.addChat('user', msg || '[写真送信]', chatViewDate, historyImgDataUrl);
     $chatInput.value = '';
     $chatSend.disabled = true;
     $typing.textContent = 'トレーナー が入力中...';
@@ -2591,14 +2633,15 @@ async function sendMessage() {
             reply = reply.replace(/<!--RECORD:.*?-->/s, '').trim();
         }
 
-        appendBubble(reply, 'trainer');
+        const nowTs = new Date().toISOString();
+        appendBubble(reply, 'trainer', nowTs);
         DB.addChat('assistant', reply, chatViewDate);
     } catch (err) {
         console.error('[MyLord] API error:', err);
         const msg = err.name === 'AbortError'
             ? '[タイムアウト] 30秒応答なし。ネットワークまたはAPIキーを確認してください。'
             : '[エラー] ' + err.message + '\n設定タブ→Groq API 設定の「接続テスト」で確認してください。';
-        appendBubble(msg, 'trainer');
+        appendBubble(msg, 'trainer', new Date().toISOString());
     } finally {
         $chatSend.disabled = false;
         $typing.textContent = '';
@@ -3249,7 +3292,11 @@ function appendSetCard(setData) {
 
         // Send to AI for coaching (non-blocking)
         const nextEx = _sessionPlan?.exercises[_sessionPlan?.exIdx];
-        let coachMsg = `セット${set}完了: ${exercise} ${actualW}${u}×${actualR}回。`;
+        const planW  = ex?.weight || '';
+        const weightNote = (planW && String(actualW) !== String(planW))
+            ? `（計画${planW}${u}から変更→${actualW}${u}。次セット以降も${actualW}${u}で提案してください）`
+            : '';
+        let coachMsg = `セット${set}完了: ${exercise} ${actualW}${u}×${actualR}回${weightNote}。`;
         if (nextEx && nextEx.name !== exercise) coachMsg += `次は${nextEx.name}。`;
         else if (_sessionPlan && !nextEx) coachMsg += '全種目終了。';
         coachMsg += 'コーチングをください。';
@@ -3269,6 +3316,27 @@ function appendSetCard(setData) {
 // ===== REST TIMER =====
 let _restTimerInterval = null;
 
+// Speech synthesis helper — finds best Japanese female voice
+function _speak(text) {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'ja-JP';
+    utter.rate = 1.0;
+    utter.pitch = 1.2; // slightly higher for female sound
+    // Try to pick a Japanese female voice
+    const voices = window.speechSynthesis.getVoices();
+    const jaVoice = voices.find(v => v.lang.startsWith('ja') && /female|woman|kyoko|haruka|siri/i.test(v.name))
+                 || voices.find(v => v.lang.startsWith('ja'));
+    if (jaVoice) utter.voice = jaVoice;
+    window.speechSynthesis.speak(utter);
+}
+// Preload voices (Chrome requires this)
+if (window.speechSynthesis) {
+    window.speechSynthesis.getVoices();
+    window.speechSynthesis.addEventListener('voiceschanged', () => window.speechSynthesis.getVoices());
+}
+
 function startRestTimer(seconds, exerciseName, setNum) {
     const bar   = document.getElementById('rest-timer-bar');
     const label = document.getElementById('rest-timer-label');
@@ -3285,12 +3353,21 @@ function startRestTimer(seconds, exerciseName, setNum) {
     function tick() {
         count.textContent = remaining;
         if (remaining <= 10) count.className = 'warning';
+
+        // Voice announcements
+        if (remaining === 30) _speak('残り30秒');
+        else if (remaining === 10) _speak('残り10秒');
+        else if (remaining === 5)  _speak('5');
+        else if (remaining === 3)  _speak('3');
+        else if (remaining === 2)  _speak('2');
+        else if (remaining === 1)  _speak('1');
+
         if (remaining <= 0) {
             count.textContent = '完了';
             count.className = 'done';
             label.textContent = '休憩終了 — 次のセットへ';
             clearInterval(_restTimerInterval);
-            // Vibrate on supported devices
+            _speak('スタート！');
             if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
             setTimeout(() => bar.classList.remove('active'), 3000);
         }
@@ -3302,6 +3379,7 @@ function startRestTimer(seconds, exerciseName, setNum) {
 
 function stopRestTimer() {
     clearInterval(_restTimerInterval);
+    window.speechSynthesis?.cancel();
     const bar = document.getElementById('rest-timer-bar');
     if (bar) bar.classList.remove('active');
 }
@@ -4456,7 +4534,7 @@ ${chatText || 'なし'}
         db.dailySummaries[chatViewDate] = summary;
         DB.save(db);
 
-        appendBubble(`【${chatViewDate} まとめ】\n${summary}`, 'trainer');
+        appendBubble(`【${chatViewDate} まとめ】\n${summary}`, 'trainer', new Date().toISOString());
         DB.addChat('assistant', `【${chatViewDate} まとめ】\n${summary}`, chatViewDate);
     } catch (err) {
         alert('サマリー生成失敗: ' + err.message);
