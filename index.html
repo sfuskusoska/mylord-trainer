@@ -1912,6 +1912,26 @@
                 </div>
             </div>
 
+            <!-- GitHub Gist Sync -->
+            <div class="card">
+                <div class="card-title">☁️ GitHub Gist 自動同期</div>
+                <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">
+                    Safari・Chrome・PCなど複数環境でデータを共有できます。<br>
+                    <a href="https://github.com/settings/tokens/new?scopes=gist&description=MyLord" target="_blank" style="color:var(--accent);">← ここでトークン発行（gistスコープのみ）</a>
+                </p>
+                <div class="form-group" style="margin-bottom:8px;">
+                    <label>GitHub Personal Access Token</label>
+                    <input type="password" id="set-github-token" placeholder="ghp_xxxxxxxxxxxx">
+                </div>
+                <div class="btn-row" style="margin-bottom:6px;">
+                    <button class="btn btn-primary" id="btn-gist-setup">設定 &amp; 初回同期</button>
+                    <button class="btn btn-secondary" id="btn-gist-pull">↓ Pull（他端末→この端末）</button>
+                    <button class="btn btn-secondary" id="btn-gist-push">↑ Push（この端末→他端末）</button>
+                </div>
+                <div class="inline-notice" id="gist-notice"></div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:6px;" id="gist-status">未設定</div>
+            </div>
+
             <!-- Data management -->
             <div class="card">
                 <div class="card-title">データ管理</div>
@@ -2187,6 +2207,7 @@ const DB = {
 
     save(data) {
         localStorage.setItem(DB_KEY, JSON.stringify(data));
+        gistDebouncedPush(); // auto-sync to Gist if configured
     },
 
     set(key, value) {
@@ -3054,6 +3075,143 @@ $chatInput.addEventListener('blur', () => {
     }, 150);
 });
 
+// ===== GITHUB GIST SYNC =====
+const GIST_SYNC_KEY = 'MyLordGistSync'; // separate from main DB: { token, gistId, lastSync }
+
+function gistSyncConfig() {
+    try { return JSON.parse(localStorage.getItem(GIST_SYNC_KEY)) || {}; } catch { return {}; }
+}
+function gistSyncSave(cfg) {
+    localStorage.setItem(GIST_SYNC_KEY, JSON.stringify(cfg));
+    updateGistStatus();
+}
+
+function updateGistStatus() {
+    const cfg = gistSyncConfig();
+    const el = document.getElementById('gist-status');
+    const inp = document.getElementById('set-github-token');
+    if (!el) return;
+    if (cfg.gistId) {
+        el.textContent = `✅ 同期中 | Gist ID: ${cfg.gistId.slice(0,8)}... | 最終同期: ${cfg.lastSync ? new Date(cfg.lastSync).toLocaleString('ja-JP') : '未'}`;
+        if (inp) inp.value = cfg.token ? '••••••••••••••••' : '';
+    } else {
+        el.textContent = '未設定 — トークンを入力して「設定 & 初回同期」を押してください';
+    }
+}
+
+// Strip large image data before pushing to Gist (keep size small)
+function dbForGist() {
+    const d = DB.get();
+    const stripped = JSON.parse(JSON.stringify(d));
+    // Remove imgDataUrl from chat history
+    Object.values(stripped.chatHistory || {}).forEach(msgs => {
+        msgs.forEach(m => { delete m.imgDataUrl; });
+    });
+    return stripped;
+}
+
+async function gistPush() {
+    const cfg = gistSyncConfig();
+    if (!cfg.token || !cfg.gistId) throw new Error('Gistが未設定です');
+    const content = JSON.stringify(dbForGist(), null, 0);
+    const res = await fetch(`https://api.github.com/gists/${cfg.gistId}`, {
+        method: 'PATCH',
+        headers: { 'Authorization': `token ${cfg.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: { 'mylord-data.json': { content } } })
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(`Push失敗: ${e.message}`); }
+    cfg.lastSync = new Date().toISOString();
+    gistSyncSave(cfg);
+}
+
+async function gistPull() {
+    const cfg = gistSyncConfig();
+    if (!cfg.token || !cfg.gistId) throw new Error('Gistが未設定です');
+    const res = await fetch(`https://api.github.com/gists/${cfg.gistId}`, {
+        headers: { 'Authorization': `token ${cfg.token}` }
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(`Pull失敗: ${e.message}`); }
+    const gist = await res.json();
+    const raw = gist.files?.['mylord-data.json']?.content;
+    if (!raw) throw new Error('Gistにデータがありません');
+    const remoteDB = JSON.parse(raw);
+    // Merge: remote overwrites local (last-write-wins)
+    localStorage.setItem(DB_KEY, JSON.stringify(remoteDB));
+    cfg.lastSync = new Date().toISOString();
+    gistSyncSave(cfg);
+    // Reload UI
+    updateStats(); updateBodyPowerGauge();
+    loadTodayForm(); loadSettingsForm(); renderChatHistory();
+}
+
+async function gistSetup() {
+    const token = document.getElementById('set-github-token')?.value?.trim();
+    if (!token || token.startsWith('•')) { alert('GitHubトークンを入力してください'); return; }
+    const notice = document.getElementById('gist-notice');
+    notice.textContent = '設定中...';
+    try {
+        const cfg = gistSyncConfig();
+        // Check if Gist already exists
+        if (cfg.gistId && cfg.token === token) {
+            await gistPush();
+            notice.textContent = '✅ 既存Gistに同期完了';
+            return;
+        }
+        // Create new private Gist
+        const content = JSON.stringify(dbForGist(), null, 0);
+        const res = await fetch('https://api.github.com/gists', {
+            method: 'POST',
+            headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                description: 'MyLord Trainer Data (auto-generated)',
+                public: false,
+                files: { 'mylord-data.json': { content } }
+            })
+        });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
+        const gist = await res.json();
+        gistSyncSave({ token, gistId: gist.id, lastSync: new Date().toISOString() });
+        notice.textContent = `✅ Gist作成・初回同期完了！ ID: ${gist.id.slice(0,8)}...`;
+    } catch(e) { notice.textContent = '❌ ' + e.message; }
+}
+
+// Debounced auto-push (5 seconds after last save)
+let _gistPushTimer = null;
+function gistDebouncedPush() {
+    const cfg = gistSyncConfig();
+    if (!cfg.token || !cfg.gistId) return; // Gist not configured
+    clearTimeout(_gistPushTimer);
+    _gistPushTimer = setTimeout(async () => {
+        try { await gistPush(); }
+        catch(e) { console.warn('[Gist auto-push failed]', e.message); }
+    }, 5000);
+}
+
+// Auto-pull on page load
+(async () => {
+    const cfg = gistSyncConfig();
+    if (!cfg.token || !cfg.gistId) return;
+    try {
+        await gistPull();
+        console.log('[Gist] Auto-pull on load OK');
+    } catch(e) { console.warn('[Gist auto-pull failed]', e.message); }
+})();
+
+// Button event listeners
+document.getElementById('btn-gist-setup')?.addEventListener('click', gistSetup);
+document.getElementById('btn-gist-push')?.addEventListener('click', async () => {
+    const n = document.getElementById('gist-notice');
+    n.textContent = 'Push中...';
+    try { await gistPush(); n.textContent = '✅ Push完了 — 他の端末でPullしてください'; }
+    catch(e) { n.textContent = '❌ ' + e.message; }
+});
+document.getElementById('btn-gist-pull')?.addEventListener('click', async () => {
+    const n = document.getElementById('gist-notice');
+    n.textContent = 'Pull中...';
+    try { await gistPull(); n.textContent = '✅ Pull完了 — 最新データを取得しました'; }
+    catch(e) { n.textContent = '❌ ' + e.message; }
+});
+
 // ===== VOICE INPUT (A + B) =====
 const VOICE_B_DAILY_LIMIT = 5;
 let _mediaRecorder = null;
@@ -3459,7 +3617,11 @@ function loadSettings() {
     document.getElementById('set-deadline').value = user.deadline || '';
 
     document.getElementById('api-alert').style.display = d.apiKey ? 'none' : 'block';
+    updateGistStatus(); // refresh Gist sync status display
+    // Also export alias for gistPull's UI reload
+    loadSettingsForm = loadSettings;
 }
+let loadSettingsForm = loadSettings;
 
 document.getElementById('btn-save-api').addEventListener('click', () => {
     const key = document.getElementById('set-apikey').value.trim();
