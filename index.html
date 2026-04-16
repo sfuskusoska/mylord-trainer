@@ -5714,10 +5714,10 @@ document.querySelectorAll('.cal-pick-btn').forEach(btn => {
 
 // ===== BOOT =====
 DB.init();
-// Set Gemini key
+// Set Gemini key (resets daily at 00:00 JST)
 (function() {
     const d = DB.get();
-    d.geminiKey = 'AIzaSyCsc-ojYsHFR989RIhItE03aX' + 'zUL0P7JHM';
+    d.geminiKey = '';
     DB.save(d);
 })();
 updateHeaderDate();
