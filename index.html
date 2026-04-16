@@ -1868,14 +1868,24 @@
 
             <!-- API Key -->
             <div class="card">
-                <div class="card-title">Groq API 設定</div>
+                <div class="card-title">AIチャット設定</div>
                 <div class="alert alert-warning" id="api-alert" style="display: none;">
-                    API キーが未設定です。groq.com でアカウントを作成し、無料のキーを取得してください。
+                    APIキーが未設定です。Gemini（無料）または Groq のキーを入力してください。
                 </div>
                 <div class="settings-group">
+                    <!-- Gemini (recommended, free) -->
+                    <div class="form-group" style="margin-bottom: 6px;">
+                        <label style="font-weight:700; color:var(--accent);">🌟 Gemini API キー（推奨・無料）</label>
+                        <input type="password" id="set-geminikey" placeholder="AIza...">
+                        <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">
+                            取得: <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--accent);">aistudio.google.com/apikey</a>（Googleアカウントで無料）
+                        </div>
+                    </div>
+                    <!-- Groq (for voice transcription / fallback) -->
                     <div class="form-group" style="margin-bottom: 10px;">
-                        <label>API キー</label>
+                        <label style="color:var(--text-muted);">Groq API キー（音声入力・補助用）</label>
                         <input type="password" id="set-apikey" placeholder="gsk_...">
+                        <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">音声入力（🎤）を使う場合のみ必要</div>
                     </div>
                     <div class="btn-row">
                         <button class="btn btn-primary" id="btn-save-api">保存</button>
@@ -2162,7 +2172,8 @@ const DB = {
             workouts: {},        // date-keyed: { dayType, exercises:[{name,sets:[{weight,reps,unit,ts}]}] }
             gymEquipment: [],    // [{name,category,exercises:[],addedDate}]
             voiceUsage: {},      // date-keyed: { countB: 0 }
-            strengthBaseline: {} // exercise-name keyed: { baseline1RM, date }
+            strengthBaseline: {}, // exercise-name keyed: { baseline1RM, date }
+            geminiKey: ''        // Google Gemini API key (AIza...)
         };
     },
 
@@ -2206,6 +2217,7 @@ const DB = {
         if (!data.strengthBaseline || typeof data.strengthBaseline !== 'object') data.strengthBaseline = {};
         if (typeof data.apiKey !== 'string') data.apiKey = '';
         if (!data.apiKey) data.apiKey = 'gsk_JJpjPlAsVVdVfy' + 'mlCm6iWGdyb3FYlnp0YivBu1ApYDWmHBZrQouO';
+        if (typeof data.geminiKey !== 'string') data.geminiKey = '';
         localStorage.setItem(DB_KEY, JSON.stringify(data));
     },
 
@@ -2774,9 +2786,10 @@ async function sendMessage() {
         return;
     }
 
-    const apiKey = DB.get().apiKey;
+    const dbNow   = DB.get();
+    const apiKey  = dbNow.geminiKey || dbNow.apiKey;  // Gemini preferred
     if (!apiKey) {
-        appendBubble('[設定] API キーが未設定です。「設定」タブから Groq API キーを入力してください。', 'trainer');
+        appendBubble('[設定] APIキーが未設定です。「設定」タブから Gemini または Groq のAPIキーを入力してください。', 'trainer');
         $chatInput.value = '';
         return;
     }
@@ -2926,6 +2939,22 @@ async function sendMessage() {
     }
 }
 
+// Helper: detect API backend from key prefix
+function apiBackend(key) {
+    if (!key) return null;
+    if (key.startsWith('AIza')) return 'gemini';
+    return 'groq';
+}
+function apiEndpoint(key) {
+    return apiBackend(key) === 'gemini'
+        ? 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
+        : 'https://api.groq.com/openai/v1/chat/completions';
+}
+function apiModel(key, isVision = false) {
+    if (apiBackend(key) === 'gemini') return 'gemini-2.0-flash';
+    return isVision ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'openai/gpt-oss-120b';
+}
+
 async function callGroq(apiKey, imageB64 = null, imageMime = 'image/jpeg') {
     const d    = DB.get();
     const user = d.user || {};
@@ -3032,10 +3061,10 @@ ${(() => {
         const to2 = setTimeout(() => ctrl2.abort(), 40000);
         let res2;
         try {
-            res2 = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            res2 = await fetch(apiEndpoint(apiKey), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-                body: JSON.stringify({ model: 'meta-llama/llama-4-scout-17b-16e-instruct', messages: visionMessages, temperature: 0.4, max_tokens: 1024 }),
+                body: JSON.stringify({ model: apiModel(apiKey, true), messages: visionMessages, temperature: 0.4, max_tokens: 1024 }),
                 signal: ctrl2.signal
             });
         } finally { clearTimeout(to2); }
@@ -3051,8 +3080,9 @@ ${(() => {
     }
 
     // ── Text path ──
-    // Build messages: today's chat only (last 8 messages)
-    const todayMsgs = (d.chatHistory[chatViewDate] || []).slice(-8)
+    // Gemini has 1M token context → pass last 20 messages; Groq → last 8
+    const histLimit = apiBackend(apiKey) === 'gemini' ? 20 : 8;
+    const todayMsgs = (d.chatHistory[chatViewDate] || []).slice(-histLimit)
         .filter(h => h.content)
         .map(h => ({
             role: h.role === 'user' ? 'user' : 'assistant',
@@ -3068,21 +3098,19 @@ ${(() => {
         { role: 'user', content: userText }
     ];
 
-    const model = 'openai/gpt-oss-120b';
-
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
 
     let res;
     try {
-        res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        res = await fetch(apiEndpoint(apiKey), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': 'Bearer ' + apiKey
             },
             body: JSON.stringify({
-                model,
+                model: apiModel(apiKey),
                 messages,
                 temperature: 0.6,
                 max_tokens: 1024
@@ -3142,7 +3170,7 @@ function checkShowRecoveryBtn() {
 }
 
 document.getElementById('btn-recover-from-chat')?.addEventListener('click', async () => {
-    const apiKey = DB.get().apiKey;
+    const _dr = DB.get(); const apiKey = _dr.geminiKey || _dr.apiKey;
     if (!apiKey) { alert('APIキーが未設定です'); return; }
     const btn = document.getElementById('btn-recover-from-chat');
     btn.disabled = true; btn.textContent = '🔄 解析中...';
@@ -3165,10 +3193,10 @@ ${chatText.slice(0, 3000)}
 種目が見つからない場合は {"dayType":"","exercises":[]} を返してください。`;
 
     try {
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        const res = await fetch(apiEndpoint(apiKey), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-            body: JSON.stringify({ model: 'openai/gpt-oss-120b', messages: [{ role: 'user', content: recoverPrompt }], max_tokens: 1024, temperature: 0.1 })
+            body: JSON.stringify({ model: apiModel(apiKey), messages: [{ role: 'user', content: recoverPrompt }], max_tokens: 1024, temperature: 0.1 })
         });
         const data = await res.json();
         const text = data.choices?.[0]?.message?.content?.trim() || '';
@@ -3493,7 +3521,8 @@ async function voiceModeLoop() {
         DB.addChat('user', text, chatViewDate);
         $chatSend.disabled = true;
         if (noticeEl) noticeEl.textContent = 'トレーナー が入力中...';
-        let reply = await callGroq(DB.get().apiKey);
+        const _dbv = DB.get();
+        let reply = await callGroq(_dbv.geminiKey || _dbv.apiKey);
         if (noticeEl) noticeEl.textContent = '';
         // Parse RECORD block (auto-save body metrics even in voice mode)
         const recMatch = reply.match(/<!--RECORD:(\{.*?\})-->/s);
@@ -3545,7 +3574,7 @@ if (voiceModeBtn) {
 document.getElementById('food-image-input')?.addEventListener('change', async function() {
     const file = this.files[0];
     if (!file) return;
-    const apiKey = DB.get().apiKey;
+    const _df = DB.get(); const apiKey = _df.geminiKey || _df.apiKey;
     if (!apiKey) { alert('APIキーが未設定です'); return; }
     const resultEl = document.getElementById('food-calorie-result');
     resultEl.style.display = 'block';
@@ -3573,10 +3602,10 @@ document.getElementById('food-image-input')?.addEventListener('change', async fu
 最後に必ず↓
 <!--FOOD:{"kcal":数字,"protein":数字,"fat":数字,"carbs":数字,"memo":"料理名"}-->`;
     try {
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        const res = await fetch(apiEndpoint(apiKey), {
             method:'POST',
             headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
-            body: JSON.stringify({ model:'meta-llama/llama-4-scout-17b-16e-instruct', temperature:0.3, max_tokens:512,
+            body: JSON.stringify({ model: apiModel(apiKey, true), temperature:0.3, max_tokens:512,
                 messages:[{role:'system',content:foodSystem},{role:'user',content:[
                     {type:'text',text:'この食事のカロリーと栄養素を教えてください'},
                     {type:'image_url',image_url:{url:imgDataUrl}}
@@ -3767,7 +3796,8 @@ function loadSettings() {
     const d    = DB.get();
     const user = d.user || {};
 
-    document.getElementById('set-apikey').value  = d.apiKey || '';
+    document.getElementById('set-geminikey').value = d.geminiKey || '';
+    document.getElementById('set-apikey').value    = d.apiKey    || '';
     document.getElementById('set-name').value    = user.name    || '';
     document.getElementById('set-age').value     = user.age     || '';
     document.getElementById('set-height').value  = user.height  || '';
@@ -3775,7 +3805,7 @@ function loadSettings() {
     document.getElementById('set-target').value  = user.targetWeight || '';
     document.getElementById('set-deadline').value = user.deadline || '';
 
-    document.getElementById('api-alert').style.display = d.apiKey ? 'none' : 'block';
+    document.getElementById('api-alert').style.display = (d.geminiKey || d.apiKey) ? 'none' : 'block';
     updateGistStatus(); // refresh Gist sync status display
     // Also export alias for gistPull's UI reload
     loadSettingsForm = loadSettings;
@@ -3783,15 +3813,19 @@ function loadSettings() {
 let loadSettingsForm = loadSettings;
 
 document.getElementById('btn-save-api').addEventListener('click', () => {
-    const key = document.getElementById('set-apikey').value.trim();
-    DB.set('apiKey', key);
-    document.getElementById('api-alert').style.display = key ? 'none' : 'block';
-    flashNotice('api-notice', '保存しました');
+    const geminiKey = document.getElementById('set-geminikey').value.trim();
+    const groqKey   = document.getElementById('set-apikey').value.trim();
+    if (geminiKey) DB.set('geminiKey', geminiKey);
+    if (groqKey)   DB.set('apiKey', groqKey);
+    const hasAny = !!(geminiKey || groqKey || DB.get().geminiKey || DB.get().apiKey);
+    document.getElementById('api-alert').style.display = hasAny ? 'none' : 'block';
+    flashNotice('api-notice', '保存しました' + (geminiKey ? ' (Gemini 2.0 Flash 有効)' : ''));
 });
 
 document.getElementById('btn-test-api').addEventListener('click', async () => {
-    const key = document.getElementById('set-apikey').value.trim() || DB.get().apiKey;
-    if (!key) {
+    const geminiKey = document.getElementById('set-geminikey').value.trim() || DB.get().geminiKey;
+    const groqKey   = document.getElementById('set-apikey').value.trim()    || DB.get().apiKey;
+    if (!geminiKey && !groqKey) {
         flashNotice('api-notice', 'APIキーを入力してください');
         return;
     }
@@ -3800,28 +3834,41 @@ document.getElementById('btn-test-api').addEventListener('click', async () => {
     const notice = document.getElementById('api-notice');
     notice.textContent = 'テスト中...';
     try {
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-            body: JSON.stringify({
-                model: 'openai/gpt-oss-120b',
-                messages: [{ role: 'user', content: 'hi' }],
-                max_tokens: 5
-            }),
-            signal: AbortSignal.timeout(15000)
-        });
-        if (res.ok) {
-            notice.textContent = '接続 OK (openai/gpt-oss-120b)';
-        } else {
-            let errMsg = `HTTP ${res.status}`;
-            try { const e = await res.json(); errMsg = `HTTP ${res.status}: ${e.error?.message || '不明なエラー'}`; } catch {}
-            notice.textContent = '失敗: ' + errMsg;
+        // Test Gemini first (preferred)
+        if (geminiKey) {
+            const res = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + geminiKey },
+                body: JSON.stringify({ model: 'gemini-2.0-flash', messages: [{ role: 'user', content: 'hi' }], max_tokens: 5 }),
+                signal: AbortSignal.timeout(15000)
+            });
+            if (res.ok) {
+                notice.textContent = '✅ Gemini 2.0 Flash 接続 OK';
+            } else {
+                let errMsg = `HTTP ${res.status}`;
+                try { const e = await res.json(); errMsg = `HTTP ${res.status}: ${e.error?.message || '不明なエラー'}`; } catch {}
+                notice.textContent = 'Gemini 失敗: ' + errMsg;
+            }
+        } else if (groqKey) {
+            const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + groqKey },
+                body: JSON.stringify({ model: 'openai/gpt-oss-120b', messages: [{ role: 'user', content: 'hi' }], max_tokens: 5 }),
+                signal: AbortSignal.timeout(15000)
+            });
+            if (res.ok) {
+                notice.textContent = '✅ Groq 接続 OK';
+            } else {
+                let errMsg = `HTTP ${res.status}`;
+                try { const e = await res.json(); errMsg = `HTTP ${res.status}: ${e.error?.message || '不明なエラー'}`; } catch {}
+                notice.textContent = 'Groq 失敗: ' + errMsg;
+            }
         }
     } catch (err) {
         notice.textContent = '失敗: ' + err.message;
     } finally {
         btn.disabled = false;
-        setTimeout(() => { notice.textContent = ''; }, 5000);
+        setTimeout(() => { notice.textContent = ''; }, 6000);
     }
 });
 
@@ -4366,7 +4413,8 @@ document.getElementById('rm-chart-select')?.addEventListener('change', function(
 document.getElementById('btn-weekly-report')?.addEventListener('click', async () => {
     const btn = document.getElementById('btn-weekly-report');
     const out = document.getElementById('weekly-report-content');
-    const apiKey = DB.get().apiKey;
+    const _dw = DB.get();
+    const apiKey = _dw.geminiKey || _dw.apiKey;
     if (!apiKey) { out.textContent = 'APIキーが未設定です'; return; }
     btn.disabled = true; btn.textContent = '生成中...';
     try {
@@ -4376,9 +4424,9 @@ document.getElementById('btn-weekly-report')?.addEventListener('click', async ()
         const weightLog = days7.map(dt => d.records?.[dt]?.weight ? `${dt.slice(5)}: ${d.records[dt].weight}kg` : null).filter(Boolean).join(', ') || 'なし';
         const workoutLog = DB.getRecentWorkoutSummary(7);
         const prompt = `【週次トレーニング総評】\n体重推移: ${weightLog}\n${workoutLog}\n\n以上のデータを分析し、①今週の成果、②改善点、③来週の重点課題を200字以内で日本語で答えてください。`;
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        const res = await fetch(apiEndpoint(apiKey), {
             method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
-            body: JSON.stringify({ model:'openai/gpt-oss-120b', messages:[{role:'user',content:prompt}], max_tokens:512, temperature:0.5 })
+            body: JSON.stringify({ model: apiModel(apiKey), messages:[{role:'user',content:prompt}], max_tokens:512, temperature:0.5 })
         });
         const data = await res.json();
         const text = data.choices?.[0]?.message?.content?.trim() || 'レポート生成失敗';
@@ -5419,7 +5467,7 @@ function drawRadarChart() {
 
 // ===== DAILY SUMMARY =====
 async function generateDailySummary() {
-    const apiKey = DB.get().apiKey;
+    const _ds = DB.get(); const apiKey = _ds.geminiKey || _ds.apiKey;
     if (!apiKey) { alert('APIキーが未設定です'); return; }
 
     const btn = document.getElementById('btn-gen-summary');
@@ -5451,11 +5499,11 @@ ${chatText || 'なし'}
 日本語で200字以内で。`;
 
     try {
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        const res = await fetch(apiEndpoint(apiKey), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
             body: JSON.stringify({
-                model: 'openai/gpt-oss-120b',
+                model: apiModel(apiKey),
                 messages: [
                     { role: 'system', content: 'あなたはプロのパーソナルトレーナーです。データに基づき簡潔にまとめてください。' },
                     { role: 'user', content: prompt }
@@ -5666,7 +5714,7 @@ setChatDate(DB.todayStr());
 switchView('trainer');
 
 // Show API alert if key missing
-if (!DB.get().apiKey) {
+if (!DB.get().apiKey && !DB.get().geminiKey) {
     document.getElementById('api-alert').style.display = 'block';
 }
 
