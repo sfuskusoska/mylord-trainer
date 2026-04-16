@@ -2156,7 +2156,7 @@ const DB = {
     _default() {
         return {
             apiKey: 'gsk_JJpjPlAsVVdVfy' + 'mlCm6iWGdyb3FYlnp0YivBu1ApYDWmHBZrQouO',
-            geminiKey: 'AQ.Ab8RN6ISeq717N5HC-CC' + 'tfkZRDePfAlDDODlUzmSxnuv7gAIhA',
+            geminiKey: '',
             user: {
                 name: '福岡',
                 age: 42,
@@ -2219,7 +2219,7 @@ const DB = {
         if (typeof data.apiKey !== 'string') data.apiKey = '';
         if (!data.apiKey) data.apiKey = 'gsk_JJpjPlAsVVdVfy' + 'mlCm6iWGdyb3FYlnp0YivBu1ApYDWmHBZrQouO';
         if (typeof data.geminiKey !== 'string') data.geminiKey = '';
-        if (!data.geminiKey) data.geminiKey = 'AQ.Ab8RN6ISeq717N5HC-CC' + 'tfkZRDePfAlDDODlUzmSxnuv7gAIhA';
+        // geminiKey: set by user in settings only, no default
         localStorage.setItem(DB_KEY, JSON.stringify(data));
     },
 
@@ -5710,6 +5710,14 @@ document.querySelectorAll('.cal-pick-btn').forEach(btn => {
 
 // ===== BOOT =====
 DB.init();
+// Force-clear bad Gemini keys (AQ.Ab8... format doesn't work)
+(function() {
+    const d = DB.get();
+    if (d.geminiKey && !d.geminiKey.startsWith('AIza')) {
+        d.geminiKey = '';
+        DB.save(d);
+    }
+})();
 updateHeaderDate();
 updateStats(); updateBodyPowerGauge();
 loadTodayForm();
