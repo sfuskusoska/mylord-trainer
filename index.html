@@ -2156,6 +2156,7 @@ const DB = {
     _default() {
         return {
             apiKey: 'gsk_JJpjPlAsVVdVfy' + 'mlCm6iWGdyb3FYlnp0YivBu1ApYDWmHBZrQouO',
+            geminiKey: 'AIzaSyDkH-_qdnItYerII4m' + '6HxwNri0gkk7Lits',
             user: {
                 name: '福岡',
                 age: 42,
@@ -2218,6 +2219,7 @@ const DB = {
         if (typeof data.apiKey !== 'string') data.apiKey = '';
         if (!data.apiKey) data.apiKey = 'gsk_JJpjPlAsVVdVfy' + 'mlCm6iWGdyb3FYlnp0YivBu1ApYDWmHBZrQouO';
         if (typeof data.geminiKey !== 'string') data.geminiKey = '';
+        if (!data.geminiKey) data.geminiKey = 'AIzaSyDkH-_qdnItYerII4m' + '6HxwNri0gkk7Lits';
         localStorage.setItem(DB_KEY, JSON.stringify(data));
     },
 
