@@ -5710,10 +5710,10 @@ document.querySelectorAll('.cal-pick-btn').forEach(btn => {
 
 // ===== BOOT =====
 DB.init();
-// Set new Gemini key
+// Clear Gemini key → force Groq fallback
 (function() {
     const d = DB.get();
-    d.geminiKey = 'AQ.Ab8RN6JWUXl9h-y9iLqobghKp6e5n-' + 'djztmIhPbR450Tajdkmw';
+    d.geminiKey = '';
     DB.save(d);
 })();
 updateHeaderDate();
