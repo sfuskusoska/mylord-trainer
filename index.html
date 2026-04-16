@@ -434,6 +434,13 @@
             color: var(--text);
         }
 
+        .btn-secondary:disabled,
+        .btn-secondary.btn-nav-off {
+            opacity: 0.35;
+            pointer-events: none;
+            cursor: default;
+        }
+
         .btn-block {
             width: 100%;
             margin-top: 10px;
@@ -1567,8 +1574,9 @@
                 <div class="card trainer-chat-card">
                     <div class="chat-date-nav">
                         <button class="btn btn-secondary cal-nav" id="chat-date-prev">&#8249;</button>
-                        <span id="chat-date-label"></span>
+                        <span id="chat-date-label" style="cursor:pointer;" onclick="setChatDate(DB.todayStr())" title="タップで今日に戻る"></span>
                         <button class="btn btn-secondary cal-nav" id="chat-date-next">&#8250;</button>
+                        <button class="btn btn-secondary" id="btn-goto-today" style="font-size:11px; padding:4px 8px; display:none;" onclick="setChatDate(DB.todayStr())">今日</button>
                         <button class="btn btn-secondary" id="btn-gen-summary" style="font-size:11px; padding:4px 8px; margin-left:auto;">📋まとめ</button>
                     </div>
                     <div id="rest-timer-bar">
@@ -2573,26 +2581,54 @@ function setChatDate(dateStr) {
     const today = DB.todayStr();
     if (label) label.textContent = dateStr === today ? `${dateStr} (今日)` : dateStr;
     const nextBtn = document.getElementById('chat-date-next');
-    if (nextBtn) nextBtn.disabled = dateStr >= today;
+    // iOS Safari: disabled attribute toggle can break click events → use CSS class instead
+    if (nextBtn) {
+        if (dateStr >= today) {
+            nextBtn.classList.add('btn-nav-off');
+            nextBtn.setAttribute('aria-disabled', 'true');
+        } else {
+            nextBtn.classList.remove('btn-nav-off');
+            nextBtn.removeAttribute('aria-disabled');
+        }
+    }
+    // Show "今日" button when viewing past dates (direct jump, works on iOS)
+    const gotoTodayBtn = document.getElementById('btn-goto-today');
+    if (gotoTodayBtn) gotoTodayBtn.style.display = dateStr < today ? 'inline-block' : 'none';
     renderChatHistory();
 }
 
 // Navigate 1 day at a time (supports 3 months of history)
+function localDateStr(d) {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
 function shiftChatDate(days) {
     const d = new Date(chatViewDate + 'T00:00:00');
     d.setDate(d.getDate() + days);
-    const next = d.toISOString().split('T')[0];
+    const next = localDateStr(d);        // ← LOCAL date (not UTC)
     const today = DB.todayStr();
     if (next > today) return;
     // Don't go earlier than 180 days ago
     const limit = new Date();
     limit.setDate(limit.getDate() - 180);
-    const limitStr = limit.toISOString().split('T')[0];
-    if (next < limitStr) return;
+    if (next < localDateStr(limit)) return;  // ← LOCAL date
     setChatDate(next);
 }
-document.getElementById('chat-date-prev').addEventListener('click', () => shiftChatDate(-1));
-document.getElementById('chat-date-next').addEventListener('click', () => shiftChatDate(+1));
+// Use both click and touchend so iOS Safari doesn't miss taps on previously-disabled buttons
+(function() {
+    function addNavListener(id, days) {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        const handler = (e) => {
+            e.preventDefault();
+            if (btn.classList.contains('btn-nav-off')) return;
+            shiftChatDate(days);
+        };
+        btn.addEventListener('click', handler);
+        btn.addEventListener('touchend', handler, { passive: false });
+    }
+    addNavListener('chat-date-prev', -1);
+    addNavListener('chat-date-next', +1);
+})();
 
 let _pendingImageB64 = null;
 let _pendingImageMime = 'image/jpeg';
