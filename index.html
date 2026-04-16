@@ -1578,6 +1578,9 @@
                     <div class="chat-messages" id="chat-messages"></div>
                     <div class="typing-indicator" id="typing"></div>
                     <div class="auto-save-notice" id="auto-save-notice"></div>
+                    <div style="padding:2px 12px;">
+                        <button id="btn-recover-from-chat" style="font-size:11px;padding:3px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text-muted);cursor:pointer;display:none;">🔄 チャットから今日の記録を復元</button>
+                    </div>
                     <div id="image-preview-row" style="display:none; padding: 4px 12px; display:none; align-items:center; gap:8px;">
                         <img id="image-preview-thumb" style="max-height:64px; border-radius:6px; border:1px solid var(--border);">
                         <span style="font-size:12px;color:var(--text-muted);">写真を添付済み</span>
@@ -2206,6 +2209,7 @@ const DB = {
     },
 
     save(data) {
+        data._savedAt = new Date().toISOString(); // timestamp every save
         localStorage.setItem(DB_KEY, JSON.stringify(data));
         gistDebouncedPush(); // auto-sync to Gist if configured
     },
@@ -2390,7 +2394,7 @@ function switchView(name) {
     if (name === 'progress')  renderProgress();
     if (name === 'settings')  loadSettings();
     if (name === 'calendar')  renderCalendar();
-    if (name === 'trainer')   renderChatHistory();
+    if (name === 'trainer')   { renderChatHistory(); checkShowRecoveryBtn(); }
     if (name === 'match')     { /* setup already rendered */ }
     if (name === 'zukan')     renderZukan();
 
@@ -2926,7 +2930,15 @@ ${(() => {
 })()}
 
 【直近ワークアウト記録(最新5件)】
-${DB.getRecentWorkoutSummary(5)}
+${(() => {
+    const summary = DB.getRecentWorkoutSummary(5);
+    // Also include training text from records (when reported via chat, not set cards)
+    const recs2 = d.records || {};
+    const trainLog = Object.entries(recs2).sort(([a],[b])=>b.localeCompare(a)).slice(0,5)
+        .filter(([,r])=>r.training).map(([date,r])=>`${date}: ${r.training}`).join('\n');
+    if (summary !== '記録なし') return summary;
+    return trainLog || '記録なし（今日のトレーニングを報告してください）';
+})()}
 
 【本日 ${DB.todayStr()}】体重:${rec.weight?rec.weight+'kg':'未記録'} 睡眠:${rec.sleep?rec.sleep+'h':'未記録'} 食事:朝${rec.morning?'済':'未'}昼${rec.lunch?'済':'未'}夜${rec.night?'済':'未'}
 【体重推移】${weekStr}
@@ -3075,6 +3087,82 @@ $chatInput.addEventListener('blur', () => {
     }, 150);
 });
 
+// ===== CHAT-BASED RECOVERY =====
+// Show recovery button when workouts DB is empty but chat history exists
+function checkShowRecoveryBtn() {
+    const btn = document.getElementById('btn-recover-from-chat');
+    if (!btn) return;
+    const d = DB.get();
+    const todayStr = DB.todayStr();
+    const hasWorkouts = Object.keys(d.workouts || {}).some(k => k === todayStr);
+    const hasChatHistory = (d.chatHistory?.[todayStr]?.length || 0) > 3;
+    btn.style.display = (!hasWorkouts && hasChatHistory) ? 'inline-block' : 'none';
+}
+
+document.getElementById('btn-recover-from-chat')?.addEventListener('click', async () => {
+    const apiKey = DB.get().apiKey;
+    if (!apiKey) { alert('APIキーが未設定です'); return; }
+    const btn = document.getElementById('btn-recover-from-chat');
+    btn.disabled = true; btn.textContent = '🔄 解析中...';
+
+    const todayStr = DB.todayStr();
+    const msgs = DB.getChatByDate(todayStr);
+    if (!msgs?.length) { btn.textContent = '今日のチャット履歴がありません'; return; }
+
+    // Build summary of today's chat for AI to parse
+    const chatText = msgs.slice(-40).map(m => `${m.role === 'user' ? 'ユーザー' : 'AI'}: ${m.content}`).join('\n');
+
+    const recoverPrompt = `以下は今日のトレーニングチャット履歴です。会話から実施したトレーニングを抽出し、以下のJSON形式で回答してください。
+
+チャット履歴:
+${chatText.slice(0, 3000)}
+
+回答形式（JSON only）:
+{"dayType":"Day1","exercises":[{"name":"種目名","sets":[{"weight":数字,"reps":数字,"unit":"kg"},...]},...]}
+
+種目が見つからない場合は {"dayType":"","exercises":[]} を返してください。`;
+
+    try {
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+            body: JSON.stringify({ model: 'openai/gpt-oss-120b', messages: [{ role: 'user', content: recoverPrompt }], max_tokens: 1024, temperature: 0.1 })
+        });
+        const data = await res.json();
+        const text = data.choices?.[0]?.message?.content?.trim() || '';
+        // Extract JSON from response
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error('トレーニングデータを読み取れませんでした');
+        const parsed = JSON.parse(jsonMatch[0]);
+
+        if (!parsed.exercises?.length) {
+            appendBubble('今日のチャットからトレーニング記録が見つかりませんでした。', 'trainer', new Date().toISOString());
+            return;
+        }
+
+        // Save to workouts DB
+        const d = DB.get();
+        if (!d.workouts) d.workouts = {};
+        if (!d.workouts[todayStr]) d.workouts[todayStr] = { dayType: parsed.dayType || '', exercises: [] };
+        parsed.exercises.forEach(ex => {
+            let existingEx = d.workouts[todayStr].exercises.find(e => e.name === ex.name);
+            if (!existingEx) { existingEx = { name: ex.name, sets: [] }; d.workouts[todayStr].exercises.push(existingEx); }
+            (ex.sets || []).forEach(s => existingEx.sets.push({ weight: s.weight, reps: s.reps, unit: s.unit || 'kg', ts: new Date().toISOString() }));
+        });
+        if (parsed.dayType) d.workouts[todayStr].dayType = parsed.dayType;
+        DB.save(d);
+
+        const summary = parsed.exercises.map(e => `${e.name}: ${e.sets.map(s=>`${s.weight}kg×${s.reps}`).join(', ')}`).join('\n');
+        appendBubble(`✅ チャット履歴から記録を復元しました！\n\n${summary}`, 'trainer', new Date().toISOString());
+        updateBodyPowerGauge();
+        checkShowRecoveryBtn();
+    } catch(e) {
+        appendBubble('復元エラー: ' + e.message, 'trainer', new Date().toISOString());
+    } finally {
+        btn.disabled = false; btn.textContent = '🔄 チャットから今日の記録を復元';
+    }
+});
+
 // ===== GITHUB GIST SYNC =====
 const GIST_SYNC_KEY = 'MyLordGistSync'; // separate from main DB: { token, gistId, lastSync }
 
@@ -3135,7 +3223,18 @@ async function gistPull() {
     const raw = gist.files?.['mylord-data.json']?.content;
     if (!raw) throw new Error('Gistにデータがありません');
     const remoteDB = JSON.parse(raw);
-    // Merge: remote overwrites local (last-write-wins)
+    // Timestamp-based merge: keep whichever is newer
+    const localDB = DB.get();
+    const localTs  = new Date(localDB._savedAt  || 0).getTime();
+    const remoteTs = new Date(remoteDB._savedAt || 0).getTime();
+    if (localTs > remoteTs) {
+        // Local is newer — push instead of overwrite
+        console.log('[Gist] Local is newer, pushing instead of pulling');
+        await gistPush();
+        cfg.lastSync = new Date().toISOString();
+        gistSyncSave(cfg);
+        return;
+    }
     localStorage.setItem(DB_KEY, JSON.stringify(remoteDB));
     cfg.lastSync = new Date().toISOString();
     gistSyncSave(cfg);
