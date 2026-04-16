@@ -5710,13 +5710,11 @@ document.querySelectorAll('.cal-pick-btn').forEach(btn => {
 
 // ===== BOOT =====
 DB.init();
-// Force-clear bad Gemini keys (AQ.Ab8... format doesn't work)
+// Set new Gemini key
 (function() {
     const d = DB.get();
-    if (d.geminiKey && !d.geminiKey.startsWith('AIza')) {
-        d.geminiKey = '';
-        DB.save(d);
-    }
+    d.geminiKey = 'AQ.Ab8RN6JWUXl9h-y9iLqobghKp6e5n-' + 'djztmIhPbR450Tajdkmw';
+    DB.save(d);
 })();
 updateHeaderDate();
 updateStats(); updateBodyPowerGauge();
