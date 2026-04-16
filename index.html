@@ -17,6 +17,7 @@
         :root {
             --bg:          #0d1117;
             --bg-card:     #161b22;
+            --surface:     #161b22;  /* alias for --bg-card, used in JS inline styles */
             --bg-input:    #0d1117;
             --border:      #30363d;
             --border-muted:#21262d;
@@ -2221,7 +2222,9 @@ const DB = {
     },
 
     todayStr() {
-        return new Date().toISOString().split('T')[0];
+        // Use LOCAL calendar date (not UTC) to avoid off-by-one in Japan (UTC+9)
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     },
 
     todayRecord() {
@@ -2288,7 +2291,7 @@ const DB = {
         for (let i = 0; i < 365; i++) {
             const dt = new Date(today);
             dt.setDate(dt.getDate() - i);
-            const s = dt.toISOString().split('T')[0];
+            const s = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
             const r = d.records[s];
             if (r && Object.keys(r).length > 0) {
                 streak++;
@@ -3077,9 +3080,12 @@ $chatInput.addEventListener('keydown', e => {
     }
 });
 // iOS: "完了" button dismisses keyboard → blur fires → auto-send if content exists
+// _blurSuppressed prevents accidental send when tapping mic/send buttons
+let _blurSuppressed = false;
+$chatSend.addEventListener('pointerdown', () => { _blurSuppressed = true; });
 $chatInput.addEventListener('blur', () => {
-    // Only on touch devices (iOS), with a short delay to allow button-tap to take priority
     if (!navigator.maxTouchPoints) return;
+    if (_blurSuppressed) { _blurSuppressed = false; return; }
     setTimeout(() => {
         if (($chatInput.value.trim() || _pendingImageB64) && !$chatSend.disabled) {
             sendMessage();
@@ -3419,7 +3425,7 @@ async function micStop() {
 }
 
 if (micBtn) {
-    micBtn.addEventListener('pointerdown', e => { e.preventDefault(); micStart(); });
+    micBtn.addEventListener('pointerdown', e => { e.preventDefault(); _blurSuppressed = true; micStart(); });
     micBtn.addEventListener('pointerup',   () => micStop());
     micBtn.addEventListener('pointerleave',() => { if (_micRecording) micStop(); });
 }
@@ -3451,13 +3457,31 @@ async function voiceModeLoop() {
         DB.addChat('user', text, chatViewDate);
         $chatSend.disabled = true;
         if (noticeEl) noticeEl.textContent = 'トレーナー が入力中...';
-        const reply = await callGroq(DB.get().apiKey);
+        let reply = await callGroq(DB.get().apiKey);
         if (noticeEl) noticeEl.textContent = '';
+        // Parse RECORD block (auto-save body metrics even in voice mode)
+        const recMatch = reply.match(/<!--RECORD:(\{.*?\})-->/s);
+        if (recMatch) {
+            try {
+                const rec = JSON.parse(recMatch[1]);
+                const fields = {};
+                if (rec.weight  != null) fields.weight  = rec.weight;
+                if (rec.sleep   != null) fields.sleep   = rec.sleep;
+                if (rec.morning != null) fields.morning = rec.morning;
+                if (rec.lunch   != null) fields.lunch   = rec.lunch;
+                if (rec.night   != null) fields.night   = rec.night;
+                if (rec.training)        fields.training = rec.training;
+                if (rec.dayType)         fields.dayType  = rec.dayType;
+                if (Object.keys(fields).length) { DB.patchRecord(fields); updateStats(); updateBodyPowerGauge(); }
+            } catch {}
+            reply = reply.replace(/<!--RECORD:.*?-->/s, '').trim();
+        }
+        reply = reply.replace(/<!--(?:MENU|SET|EQUIPMENT):.*?-->/gs, '').trim();
         const nowTs = new Date().toISOString();
         appendBubble(reply, 'trainer', nowTs);
         DB.addChat('assistant', reply, chatViewDate);
         // Read response aloud
-        _speak(reply.replace(/<!--.*?-->/gs, '').slice(0, 200));
+        _speak(reply.slice(0, 200));
     } catch(e) {
         if (noticeEl) noticeEl.textContent = '';
         appendBubble('[音声エラー] ' + e.message, 'trainer', new Date().toISOString());
@@ -3907,7 +3931,7 @@ function appendChecklist(exercises) {
         startBtn.disabled = true;
         startBtn.textContent = '開始しました';
         // Initialise session state
-        _sessionPlan = { exercises: exList, exIdx: 0, date: chatViewDate };
+        _sessionPlan = { exercises: exList, exIdx: 0, date: chatViewDate, dayType: DB.todayRecord().dayType || '' };
         saveSessionPlan();
         // Show first set card and notify AI
         showNextSetCard(true);
