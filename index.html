@@ -859,6 +859,8 @@
             padding: 4px 12px;
             font-size: 18px;
             line-height: 1;
+            min-height: 44px;
+            min-width: 44px;
         }
         .cal-legend {
             display: flex;
@@ -1574,7 +1576,7 @@
                 <div class="card trainer-chat-card">
                     <div class="chat-date-nav">
                         <button class="btn btn-secondary cal-nav" id="chat-date-prev">&#8249;</button>
-                        <span id="chat-date-label" style="cursor:pointer;" onclick="setChatDate(DB.todayStr())" title="タップで今日に戻る"></span>
+                        <span id="chat-date-label" style="cursor:pointer; padding:10px 8px; display:inline-block; min-height:44px; line-height:24px;" onclick="setChatDate(DB.todayStr())" title="タップで今日に戻る"></span>
                         <button class="btn btn-secondary cal-nav" id="chat-date-next">&#8250;</button>
                         <button class="btn btn-secondary" id="btn-goto-today" style="font-size:11px; padding:4px 8px; display:none;" onclick="setChatDate(DB.todayStr())">今日</button>
                         <button class="btn btn-secondary" id="btn-gen-summary" style="font-size:11px; padding:4px 8px; margin-left:auto;">📋まとめ</button>
@@ -1600,8 +1602,8 @@
                         <input type="file" id="chat-image-input" accept="image/*" style="display:none;">
                         <textarea id="chat-input" placeholder="メッセージを入力" enterkeyhint="send" inputmode="text"></textarea>
                         <button class="btn btn-primary" id="chat-send">送信</button>
-                        <button id="btn-mic" title="長押しで音声入力" style="padding:0 10px;height:40px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:18px;cursor:pointer;flex-shrink:0;">🎤</button>
-                        <button id="btn-voice-mode" title="ハンズフリー音声会話" style="padding:0 8px;height:40px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text-muted);font-size:11px;cursor:pointer;flex-shrink:0;line-height:1.2;max-width:48px;">声<br><span id="voice-mode-remain">5</span></button>
+                        <button id="btn-mic" title="長押しで音声入力" style="padding:0 12px;height:44px;min-width:44px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:20px;cursor:pointer;flex-shrink:0;">🎤</button>
+                        <button id="btn-voice-mode" title="ハンズフリー音声会話" style="padding:0 8px;height:44px;min-width:44px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text-muted);font-size:11px;cursor:pointer;flex-shrink:0;line-height:1.2;max-width:52px;">声<br><span id="voice-mode-remain">5</span></button>
                     </div>
                 </div>
             </div>
@@ -4248,6 +4250,48 @@ if (window.speechSynthesis) {
     window.speechSynthesis.addEventListener('voiceschanged', () => window.speechSynthesis.getVoices());
 }
 
+// ===== BEEP SOUND (Web Audio API) =====
+// iOS Safari requires AudioContext unlock via user gesture.
+// We unlock on first touch anywhere, then reuse the context.
+let _audioCtx = null;
+function _unlockAudio() {
+    if (_audioCtx) return;
+    try {
+        _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        // Play silent buffer to unlock on iOS
+        const buf = _audioCtx.createBuffer(1, 1, 22050);
+        const src = _audioCtx.createBufferSource();
+        src.buffer = buf; src.connect(_audioCtx.destination); src.start(0);
+    } catch {}
+}
+document.addEventListener('touchstart', _unlockAudio, { once: true, passive: true });
+document.addEventListener('click',      _unlockAudio, { once: true });
+
+function _beep(freq = 880, durationMs = 150, volume = 0.25) {
+    try {
+        if (!_audioCtx) _unlockAudio();
+        if (!_audioCtx || _audioCtx.state === 'closed') return;
+        if (_audioCtx.state === 'suspended') _audioCtx.resume();
+        const osc = _audioCtx.createOscillator();
+        const gain = _audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(volume, _audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, _audioCtx.currentTime + durationMs / 1000);
+        osc.connect(gain); gain.connect(_audioCtx.destination);
+        osc.start();
+        osc.stop(_audioCtx.currentTime + durationMs / 1000);
+    } catch {}
+}
+// Finish chime: 3 ascending beeps
+function _beepFinish() {
+    _beep(660, 120, 0.3);
+    setTimeout(() => _beep(880, 120, 0.3), 150);
+    setTimeout(() => _beep(1320, 300, 0.35), 300);
+}
+// Countdown tick: single short beep
+function _beepTick(freq = 880) { _beep(freq, 80, 0.2); }
+
 function startRestTimer(seconds, exerciseName, setNum) {
     const bar   = document.getElementById('rest-timer-bar');
     const label = document.getElementById('rest-timer-label');
@@ -4265,19 +4309,20 @@ function startRestTimer(seconds, exerciseName, setNum) {
         count.textContent = remaining;
         if (remaining <= 10) count.className = 'warning';
 
-        // Voice announcements
-        if (remaining === 30) _speak('残り30秒');
-        else if (remaining === 10) _speak('残り10秒');
-        else if (remaining === 5)  _speak('5');
-        else if (remaining === 3)  _speak('3');
-        else if (remaining === 2)  _speak('2');
-        else if (remaining === 1)  _speak('1');
+        // Voice announcements + beep countdown
+        if (remaining === 30) { _speak('残り30秒'); _beepTick(660); }
+        else if (remaining === 10) { _speak('残り10秒'); _beepTick(660); }
+        else if (remaining === 5)  { _speak('5'); _beepTick(880); }
+        else if (remaining === 3)  { _speak('3'); _beepTick(880); }
+        else if (remaining === 2)  { _speak('2'); _beepTick(880); }
+        else if (remaining === 1)  { _speak('1'); _beepTick(880); }
 
         if (remaining <= 0) {
             count.textContent = '完了';
             count.className = 'done';
             label.textContent = '休憩終了 — 次のセットへ';
             clearInterval(_restTimerInterval);
+            _beepFinish();
             _speak('スタート！');
             if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
             setTimeout(() => bar.classList.remove('active'), 3000);
