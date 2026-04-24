@@ -1578,8 +1578,8 @@
                         <button class="btn btn-secondary cal-nav" id="chat-date-prev">&#8249;</button>
                         <span id="chat-date-label" style="cursor:pointer; padding:10px 8px; display:inline-block; min-height:44px; line-height:24px;" onclick="setChatDate(DB.todayStr())" title="タップで今日に戻る"></span>
                         <button class="btn btn-secondary cal-nav" id="chat-date-next">&#8250;</button>
-                        <button class="btn btn-secondary" id="btn-goto-today" style="font-size:11px; padding:4px 8px; display:none;" onclick="setChatDate(DB.todayStr())">今日</button>
-                        <button class="btn btn-secondary" id="btn-gen-summary" style="font-size:11px; padding:4px 8px; margin-left:auto;">📋まとめ</button>
+                        <button class="btn btn-secondary" id="btn-goto-today" style="font-size:13px; padding:10px 14px; min-height:44px; display:none;" onclick="setChatDate(DB.todayStr())">今日</button>
+                        <button class="btn btn-secondary" id="btn-gen-summary" style="font-size:13px; padding:10px 14px; min-height:44px; margin-left:auto;">📋まとめ</button>
                     </div>
                     <div id="rest-timer-bar">
                         <span id="rest-timer-label">休憩タイマー</span>
@@ -1595,10 +1595,10 @@
                     <div id="image-preview-row" style="display:none; padding: 4px 12px; display:none; align-items:center; gap:8px;">
                         <img id="image-preview-thumb" style="max-height:64px; border-radius:6px; border:1px solid var(--border);">
                         <span style="font-size:12px;color:var(--text-muted);">写真を添付済み</span>
-                        <button id="image-remove" style="margin-left:auto;font-size:12px;padding:3px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text-muted);cursor:pointer;">取り消す</button>
+                        <button id="image-remove" style="margin-left:auto;font-size:13px;padding:10px 14px;min-height:44px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text-muted);cursor:pointer;">取り消す</button>
                     </div>
                     <div class="chat-input-row">
-                        <label for="chat-image-input" style="cursor:pointer; padding: 6px 10px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text-muted); font-size:18px; line-height:1; flex-shrink:0;" title="写真を添付">&#128247;</label>
+                        <label for="chat-image-input" style="cursor:pointer; padding: 0 12px; height:44px; min-width:44px; display:inline-flex; align-items:center; justify-content:center; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text-muted); font-size:20px; line-height:1; flex-shrink:0;" title="写真を添付">&#128247;</label>
                         <input type="file" id="chat-image-input" accept="image/*" style="display:none;">
                         <textarea id="chat-input" placeholder="メッセージを入力" enterkeyhint="send" inputmode="text"></textarea>
                         <button class="btn btn-primary" id="chat-send">送信</button>
@@ -2423,6 +2423,11 @@ function switchView(name) {
     if (name === 'calendar')  renderCalendar();
     if (name === 'trainer')   { renderChatHistory(); checkShowRecoveryBtn(); }
     if (name === 'match')     { /* setup already rendered */ }
+    // Match モードから別画面へ遷移する際、走っている interval を止める
+    if (name !== 'match' && typeof matchState !== 'undefined') {
+        if (matchState.timerInterval) { clearInterval(matchState.timerInterval); matchState.timerInterval = null; }
+        if (matchState.chantInterval) { clearInterval(matchState.chantInterval); matchState.chantInterval = null; }
+    }
     if (name === 'zukan')     renderZukan();
 
     // Scroll to top on view switch
@@ -3157,10 +3162,14 @@ $chatInput.addEventListener('keydown', e => {
 // _blurSuppressed prevents accidental send when tapping mic/send buttons
 let _blurSuppressed = false;
 $chatSend.addEventListener('pointerdown', () => { _blurSuppressed = true; });
+let _blurSendPending = false;
 $chatInput.addEventListener('blur', () => {
     if (!navigator.maxTouchPoints) return;
     if (_blurSuppressed) { _blurSuppressed = false; return; }
+    if (_blurSendPending) return; // 二重送信ガード
+    _blurSendPending = true;
     setTimeout(() => {
+        _blurSendPending = false;
         if (($chatInput.value.trim() || _pendingImageB64) && !$chatSend.disabled) {
             sendMessage();
         }
@@ -4473,7 +4482,12 @@ document.getElementById('btn-weekly-report')?.addEventListener('click', async ()
     try {
         const d = DB.get();
         const today = DB.todayStr();
-        const days7 = Array.from({length:7}, (_,i) => { const d2=new Date(today+'T00:00:00'); d2.setDate(d2.getDate()-i); return d2.toISOString().slice(0,10); }).reverse();
+        const days7 = Array.from({length:7}, (_,i) => {
+            const [y,m,dd] = today.split('-').map(Number);
+            const d2 = new Date(y, m-1, dd - i); // ローカル日付構築（UTCずれ回避）
+            const pad = n => String(n).padStart(2,'0');
+            return `${d2.getFullYear()}-${pad(d2.getMonth()+1)}-${pad(d2.getDate())}`;
+        }).reverse();
         const weightLog = days7.map(dt => d.records?.[dt]?.weight ? `${dt.slice(5)}: ${d.records[dt].weight}kg` : null).filter(Boolean).join(', ') || 'なし';
         const workoutLog = DB.getRecentWorkoutSummary(7);
         const prompt = `【週次トレーニング総評】\n体重推移: ${weightLog}\n${workoutLog}\n\n以上のデータを分析し、①今週の成果、②改善点、③来週の重点課題を200字以内で日本語で答えてください。`;
@@ -4510,7 +4524,16 @@ function renderLastWorkoutSummary() {
         const lastSet = e.sets[e.sets.length - 1];
         return `${e.name} (${e.sets.length}セット / 最終${lastSet?.weight||'?'}${lastSet?.unit||'kg'})`;
     }).join('\n');
-    summaryEl.innerHTML = `<strong>${date} ${workout.dayType||''}</strong><br><span style="white-space:pre-line;font-size:12px">${exList}</span>`;
+    // XSS対策: innerHTML を避けて textContent ベースで構築
+    summaryEl.textContent = '';
+    const strong = document.createElement('strong');
+    strong.textContent = `${date} ${workout.dayType||''}`;
+    const span = document.createElement('span');
+    span.style.cssText = 'white-space:pre-line;font-size:12px';
+    span.textContent = exList;
+    summaryEl.appendChild(strong);
+    summaryEl.appendChild(document.createElement('br'));
+    summaryEl.appendChild(span);
     btn.disabled = false;
 
     btn.onclick = () => {
@@ -5595,11 +5618,21 @@ function renderDailySummaries() {
         container.innerHTML = '<p class="summary-empty">まだ日次ログがありません。トレーナー画面の「まとめを生成」で作成できます。</p>';
         return;
     }
-    container.innerHTML = dates.map(d => `
-        <div class="summary-item">
-            <div class="summary-date">${d}</div>
-            <div class="summary-text">${summaries[d]}</div>
-        </div>`).join('');
+    // XSS対策: AI応答を含む summaries を innerHTML で展開しない
+    container.textContent = '';
+    dates.forEach(d => {
+        const item = document.createElement('div');
+        item.className = 'summary-item';
+        const dateDiv = document.createElement('div');
+        dateDiv.className = 'summary-date';
+        dateDiv.textContent = d;
+        const textDiv = document.createElement('div');
+        textDiv.className = 'summary-text';
+        textDiv.textContent = summaries[d];
+        item.appendChild(dateDiv);
+        item.appendChild(textDiv);
+        container.appendChild(item);
+    });
 }
 
 document.getElementById('btn-gen-summary').addEventListener('click', generateDailySummary);
