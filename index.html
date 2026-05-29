@@ -3431,6 +3431,20 @@ function updateVoiceModeBtn() {
     btn.title = `ハンズフリー音声会話 (残り${left}/${VOICE_B_DAILY_LIMIT}回)`;
 }
 
+// Whisper の認識精度を上げる語彙ヒント（筋トレ用語 + ユーザー自身の種目名）
+function _buildWhisperPrompt() {
+    const base = 'ベンチプレス、スクワット、デッドリフト、ショルダープレス、ラットプルダウン、レッグプレス、アームカール、インクライン、ダンベル、バーベル、懸垂、有酸素、レップ、セット、キロ、重量、増量、減量、プロテイン、マイロード。';
+    let names = [];
+    try {
+        const d = DB.get();
+        const seen = new Set();
+        Object.values(d.workouts || {}).forEach(w => (w.exercises || []).forEach(e => {
+            if (e.name && !seen.has(e.name)) { seen.add(e.name); names.push(e.name); }
+        }));
+    } catch {}
+    return base + (names.length ? ' ' + names.slice(0, 30).join('、') + '。' : '');
+}
+
 async function transcribeAudio(blob) {
     const apiKey = DB.get().apiKey;
     if (!apiKey) throw new Error('APIキー未設定');
@@ -3439,6 +3453,7 @@ async function transcribeAudio(blob) {
     form.append('file', blob, `audio.${ext}`);
     form.append('model', 'whisper-large-v3-turbo');
     form.append('language', 'ja');
+    form.append('prompt', _buildWhisperPrompt()); // 筋トレ語彙バイアス
     const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + apiKey },
@@ -3473,6 +3488,83 @@ async function stopRecordingAndGetBlob() {
             resolve(blob);
         };
         try { _mediaRecorder.stop(); } catch(e) { reject(e); }
+    });
+}
+
+// ── 音声区間検出(VAD)録音: 喋り終わりの無音を検知して自動停止 ──
+// 固定8秒待ちを撤廃。話し始め→無音1.4秒で確定、最長18秒、無発話なら6秒で打ち切り。
+let _vadRaf = null;
+async function recordWithVAD({ maxMs = 18000, silenceMs = 1400, minMs = 600, noSpeechMs = 6000, onState = null } = {}) {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const TYPES = ['audio/mp4;codecs=mp4a.40.2','audio/mp4','audio/webm;codecs=opus','audio/webm','audio/ogg'];
+    const mimeType = TYPES.find(t => MediaRecorder.isTypeSupported(t)) || '';
+    const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    const chunks = [];
+    rec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+    _mediaRecorder = rec; // 音声モードOFF時に外部から stop できるよう公開
+
+    // 音量解析用アナライザ（ビープ用 _audioCtx を再利用、destination には繋がない＝ハウリング無し）
+    if (!_audioCtx) _unlockAudio();
+    const ac = _audioCtx;
+    let source = null, analyser = null, buf = null;
+    try {
+        if (ac && ac.state === 'suspended') await ac.resume();
+        if (ac) {
+            source = ac.createMediaStreamSource(stream);
+            analyser = ac.createAnalyser();
+            analyser.fftSize = 512;
+            source.connect(analyser);
+            buf = new Uint8Array(analyser.fftSize);
+        }
+    } catch { analyser = null; }
+
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const startT = Date.now();
+        let lastVoiceT = startT;
+        let everSpoke = false;
+        const THRESH = 0.025; // RMS 閾値（正規化）
+
+        const cleanup = () => {
+            if (_vadRaf) { cancelAnimationFrame(_vadRaf); _vadRaf = null; }
+            try { source && source.disconnect(); } catch {}
+            try { analyser && analyser.disconnect(); } catch {}
+            try { stream.getTracks().forEach(t => t.stop()); } catch {}
+        };
+        rec.onstop = () => {
+            cleanup();
+            if (settled) return;
+            settled = true;
+            const blob = new Blob(chunks, { type: rec.mimeType || mimeType || 'audio/mp4' });
+            resolve({ blob, spoke: everSpoke });
+        };
+        rec.onerror = (e) => { if (settled) return; settled = true; cleanup(); reject(e.error || new Error('録音エラー')); };
+
+        const tick = () => {
+            if (rec.state === 'inactive') return;
+            if (analyser) {
+                analyser.getByteTimeDomainData(buf);
+                let sum = 0;
+                for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
+                const rms = Math.sqrt(sum / buf.length);
+                if (rms > THRESH) {
+                    lastVoiceT = Date.now();
+                    if (!everSpoke && onState) onState('speaking');
+                    everSpoke = true;
+                }
+            }
+            const now = Date.now();
+            const elapsed = now - startT;
+            const silentFor = now - lastVoiceT;
+            const stop = analyser
+                ? ((everSpoke && silentFor > silenceMs && elapsed > minMs) || elapsed > maxMs || (!everSpoke && elapsed > noSpeechMs))
+                : (elapsed > 8000); // アナライザ不可なら従来の固定フォールバック
+            if (stop) { try { rec.stop(); } catch { cleanup(); if (!settled) { settled = true; resolve({ blob: new Blob(chunks), spoke: everSpoke }); } } return; }
+            _vadRaf = requestAnimationFrame(tick);
+        };
+
+        try { rec.start(200); } catch (e) { cleanup(); settled = true; reject(e); return; }
+        _vadRaf = requestAnimationFrame(tick);
     });
 }
 
@@ -3526,15 +3618,22 @@ async function voiceModeLoop() {
     }
     _voiceLoopActive = true;
     const noticeEl = document.getElementById('typing');
-    if (noticeEl) noticeEl.textContent = '🎤 話してください...';
     try {
-        await startRecording();
-        // Record for up to 10 seconds, or until user taps mic button again
-        await new Promise(res => setTimeout(res, 8000));
-        const blob = await stopRecordingAndGetBlob();
-        if (noticeEl) noticeEl.textContent = '変換中...';
+        _stopSpeaking(); // 自分のTTS音声を録音しないよう、聞き取り前に必ず停止
+        if (noticeEl) noticeEl.textContent = '🎤 どうぞ話してください…';
+        const { blob, spoke } = await recordWithVAD({
+            onState: s => { if (s === 'speaking' && noticeEl) noticeEl.textContent = '🎤 聞き取り中…'; }
+        });
+        if (!_voiceModeOn) { if (noticeEl) noticeEl.textContent = ''; return; } // 録音中にOFFされた
+        if (!spoke) { // 無発話 → API を呼ばず再リッスン
+            if (noticeEl) noticeEl.textContent = '';
+            _voiceLoopActive = false;
+            if (_voiceModeOn) setTimeout(voiceModeLoop, 300);
+            return;
+        }
+        if (noticeEl) noticeEl.textContent = '変換中…';
         const text = await transcribeAudio(blob);
-        if (!text || text.length < 2) { if (noticeEl) noticeEl.textContent = ''; _voiceLoopActive = false; if (_voiceModeOn) voiceModeLoop(); return; }
+        if (!text || text.length < 2) { if (noticeEl) noticeEl.textContent = ''; _voiceLoopActive = false; if (_voiceModeOn) setTimeout(voiceModeLoop, 300); return; }
         incVoiceBUsed(); updateVoiceModeBtn();
         appendBubble(text, 'user', new Date().toISOString());
         DB.addChat('user', text, chatViewDate);
@@ -3564,15 +3663,16 @@ async function voiceModeLoop() {
         const nowTs = new Date().toISOString();
         appendBubble(reply, 'trainer', nowTs);
         DB.addChat('assistant', reply, chatViewDate);
-        // Read response aloud
-        _speak(reply.slice(0, 200));
+        // 返答を読み上げ、完了を待ってから次のリッスンへ（自己ループ防止）
+        if (_voiceModeOn) await _speakAndWait(_ttsClean(reply));
     } catch(e) {
         if (noticeEl) noticeEl.textContent = '';
         appendBubble('[音声エラー] ' + e.message, 'trainer', new Date().toISOString());
     } finally {
         $chatSend.disabled = false;
         _voiceLoopActive = false;
-        if (_voiceModeOn) setTimeout(voiceModeLoop, 1500);
+        // TTS 完了を await 済みなので短い間隔で再開できる
+        if (_voiceModeOn) setTimeout(voiceModeLoop, 250);
     }
 }
 
@@ -3584,7 +3684,13 @@ if (voiceModeBtn) {
         _voiceModeOn = !_voiceModeOn;
         updateVoiceModeBtn();
         if (_voiceModeOn) voiceModeLoop();
-        else { if (_mediaRecorder?.state === 'recording') _mediaRecorder.stop(); }
+        else {
+            _stopSpeaking(); // 読み上げ中なら止める
+            if (_vadRaf) { cancelAnimationFrame(_vadRaf); _vadRaf = null; }
+            if (_mediaRecorder && _mediaRecorder.state === 'recording') _mediaRecorder.stop();
+            const noticeEl = document.getElementById('typing');
+            if (noticeEl) noticeEl.textContent = '';
+        }
     });
     updateVoiceModeBtn();
 }
@@ -4253,6 +4359,43 @@ function _speak(text) {
     if (jaVoice) utter.voice = jaVoice;
     window.speechSynthesis.speak(utter);
 }
+// 読み上げ完了を待つ版（ハンズフリー音声モードのペース制御用）
+function _speakAndWait(text) {
+    return new Promise(resolve => {
+        if (!window.speechSynthesis || !text) { resolve(); return; }
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.lang = 'ja-JP'; utter.rate = 1.05; utter.pitch = 1.2;
+        const voices = window.speechSynthesis.getVoices();
+        const jaVoice = voices.find(v => v.lang.startsWith('ja') && /female|woman|kyoko|haruka|siri/i.test(v.name))
+                     || voices.find(v => v.lang.startsWith('ja'));
+        if (jaVoice) utter.voice = jaVoice;
+        let done = false;
+        const finish = () => { if (done) return; done = true; resolve(); };
+        utter.onend = finish;
+        utter.onerror = finish;
+        // iOS で onend が発火しない既知の不具合への保険
+        setTimeout(finish, Math.min(30000, 1500 + text.length * 120));
+        window.speechSynthesis.speak(utter);
+    });
+}
+function _stopSpeaking() { try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch {} }
+// 読み上げ用にマークダウン/制御記号を除去し、長文は文境界で約240字に圧縮
+function _ttsClean(text) {
+    let t = String(text || '')
+        .replace(/<!--.*?-->/gs, '')
+        .replace(/[*_#`>~|【】「」]/g, '')
+        .replace(/\n{2,}/g, '。')
+        .replace(/\n/g, ' ')
+        .trim();
+    if (t.length > 240) {
+        const cut = t.slice(0, 240);
+        const lastP = Math.max(cut.lastIndexOf('。'), cut.lastIndexOf('！'), cut.lastIndexOf('？'));
+        t = (lastP > 80 ? cut.slice(0, lastP + 1) : cut);
+    }
+    return t;
+}
+
 // Preload voices (Chrome requires this)
 if (window.speechSynthesis) {
     window.speechSynthesis.getVoices();
